@@ -9,7 +9,7 @@ Real-time order processing system for Shopee e-commerce platform with Telegram n
 ## Features
 
 - **Real-time Notifications** - Instantly receive Shopee order updates via Telegram
-- **Secure Webhooks** - HMAC-SHA256 signature validation for all incoming events
+- **Webhook Processing** - Receives and processes all Shopee webhook events (signature validation currently non-functional, see Known Issues)
 - **Complete Order Data** - Automatic API fetch for comprehensive order details
 - **Persistent Storage** - SQLite database for order tracking and history
 - **Auto Token Refresh** - Seamless handling of Shopee API token expiration
@@ -17,13 +17,26 @@ Real-time order processing system for Shopee e-commerce platform with Telegram n
 - **Health Monitoring** - Built-in health checks for orchestration systems
 - **Organized Logs** - Date and session-based logging with Singapore timezone
 
+## Known Issues
+
+### Webhook Signature Validation
+
+The HMAC-SHA256 signature validation is currently **non-functional**. After extensive troubleshooting, the signature validation cannot be made to work with Shopee's webhook implementation.
+
+**Current behavior:**
+- System operates with `DEBUG_WEBHOOK=1` environment variable
+- All webhooks are accepted without signature verification
+- Full functionality maintained for order processing and notifications
+
+**Security note:** This system should only be deployed in trusted environments or behind additional authentication layers (e.g., firewall rules, reverse proxy authentication).
+
 ## Architecture
 
 ```mermaid
 graph LR
     A["Shopee<br/>Platform"] -->|Webhook| B["FastAPI<br/>Server"]
-    B -->|Validate| C["HMAC-SHA256<br/>Signature"]
-    C -->|Valid| D["Shopee<br/>API Client"]
+    B -->|Receive| C["Webhook<br/>Handler"]
+    C -->|Process| D["Shopee<br/>API Client"]
     D -->|Fetch| E["Order<br/>Details"]
     E -->|Store| F["SQLite<br/>Database"]
     E -->|Format| G["Telegram<br/>Notifier"]
@@ -45,16 +58,12 @@ graph LR
 sequenceDiagram
     participant Shopee as Shopee Platform
     participant API as FastAPI Server
-    participant Validator as Signature Validator
     participant OrderService as Order Service
     participant ShopeeAPI as Shopee API
     participant DB as Database
     participant Telegram as Telegram Bot
 
     Shopee->>API: POST /webhook/shopee
-    API->>Validator: Validate HMAC signature
-    Validator-->>API: Valid
-
     API->>OrderService: Process webhook
     OrderService->>ShopeeAPI: GET order details
     ShopeeAPI-->>OrderService: Order data
@@ -171,25 +180,27 @@ Health check endpoint for monitoring.
 }
 ```
 
-## Supported Webhook Events
+## Webhook Event Support
 
-```mermaid
-graph TB
-    WH["Webhook Events"]
+This system is **extensible for all Shopee webhook event codes**. It dynamically handles any event code sent by Shopee.
 
-    WH --> E3["Code 3: Order Status Update"]
-    WH --> E4["Code 4: Order Tracking Number"]
-    WH --> E8["Code 8: Stock Change"]
-    WH --> E15["Code 15: Shipping Document"]
-    WH --> E25["Code 25: Booking Document"]
+**Common event codes** (examples):
 
-    style WH fill:#f57c00,stroke:#000,color:#fff
-    style E3 fill:#d32f2f,stroke:#000,color:#fff
-    style E4 fill:#388e3c,stroke:#000,color:#fff
-    style E8 fill:#1976d2,stroke:#000,color:#fff
-    style E15 fill:#7b1fa2,stroke:#000,color:#fff
-    style E25 fill:#f57c00,stroke:#000,color:#fff
-```
+| Code | Event Type | Processing |
+|------|------------|------------|
+| 3 | Order Status Update | Full order fetch + DB storage + Telegram notification |
+| 4 | Order Tracking Number | Full order fetch + DB storage + Telegram notification |
+| 8 | Reserved Stock Change | Event logging + Telegram notification |
+| 15 | Shipping Document Status | Event logging + Telegram notification |
+| 25 | Booking Shipping Document | Event logging + Telegram notification |
+
+The system automatically:
+- Creates Telegram forum topics for each event code
+- Logs all events to `logs/webhook_events_YYYY-MM-DD.json`
+- Processes orders for event codes 3 and 4
+- Sends formatted notifications for all event types
+
+**Note:** Enable specific event codes in your Shopee Partner Console webhook settings.
 
 ## Telegram Message Format
 
@@ -302,14 +313,9 @@ sqlite3 data/shopee_orders.db "SELECT * FROM order_items LIMIT 5;"
 
 ## Troubleshooting
 
-### Webhook Signature Validation Fails
+### Webhook Signature Validation
 
-**Issue**: Signature mismatch errors
-
-**Solution**:
-1. Verify `WEBHOOK_PARTNER_KEY` matches Shopee console
-2. Ensure raw webhook body is not modified
-3. Check webhook is HMAC-SHA256 encoded
+**Note**: Signature validation is currently non-functional (see Known Issues section). Ensure `DEBUG_WEBHOOK=1` is set in your environment variables.
 
 ### API Returns 403 Forbidden
 
