@@ -29,14 +29,14 @@ graph LR
     E -->|Format| G["Telegram<br/>Notifier"]
     G -->|Send| H["Telegram<br/>Bot"]
 
-    style A fill:#f9d5e5
-    style B fill:#eeac99
-    style C fill:#c7ceea
-    style D fill:#b5ead7
-    style E fill:#ffdac1
-    style F fill:#e0bbe4
-    style G fill:#957dad
-    style H fill:#d291bc
+    style A fill:#d32f2f,stroke:#000,color:#fff
+    style B fill:#1976d2,stroke:#000,color:#fff
+    style C fill:#7b1fa2,stroke:#000,color:#fff
+    style D fill:#00796b,stroke:#000,color:#fff
+    style E fill:#f57c00,stroke:#000,color:#fff
+    style F fill:#c2185b,stroke:#000,color:#fff
+    style G fill:#283593,stroke:#000,color:#fff
+    style H fill:#0097a7,stroke:#000,color:#fff
 ```
 
 ## Webhook Processing Flow
@@ -183,12 +183,12 @@ graph TB
     WH --> E15["Code 15: Shipping Document"]
     WH --> E25["Code 25: Booking Document"]
 
-    style WH fill:#ffd700
-    style E3 fill:#ffb6c1
-    style E4 fill:#98fb98
-    style E8 fill:#87ceeb
-    style E15 fill:#dda0dd
-    style E25 fill:#f0e68c
+    style WH fill:#f57c00,stroke:#000,color:#fff
+    style E3 fill:#d32f2f,stroke:#000,color:#fff
+    style E4 fill:#388e3c,stroke:#000,color:#fff
+    style E8 fill:#1976d2,stroke:#000,color:#fff
+    style E15 fill:#7b1fa2,stroke:#000,color:#fff
+    style E25 fill:#f57c00,stroke:#000,color:#fff
 ```
 
 ## Telegram Message Format
