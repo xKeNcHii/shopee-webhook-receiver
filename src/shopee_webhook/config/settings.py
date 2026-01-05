@@ -32,9 +32,8 @@ class Settings(BaseSettings):
     # API Configuration
     host_api: str = "https://partner.shopeemobile.com"
 
-    # Database Configuration
-    database_url: str = "sqlite+aiosqlite:///./data/shopee_orders.db"
-    db_echo: bool = False
+    # Forwarding Configuration
+    forward_webhook_url: Optional[str] = None
 
     class Config:
         """Pydantic config."""

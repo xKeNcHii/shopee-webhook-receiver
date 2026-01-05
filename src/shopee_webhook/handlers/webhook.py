@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from shopee_webhook.core.logger import setup_logger
 from shopee_webhook.integrations.telegram import send_webhook_to_telegram
+from shopee_webhook.integrations.forwarder import WebhookForwarder
 
 logger = setup_logger(__name__)
 
@@ -13,6 +14,7 @@ async def handle_webhook_event(
     event_payload: Dict[str, Any],
     authorization_header: str | None = None,
     order_service: Optional[Any] = None,
+    forwarder: Optional[WebhookForwarder] = None,
 ) -> None:
     """
     Handle incoming webhook event.
@@ -62,6 +64,20 @@ async def handle_webhook_event(
         )
     except Exception as e:
         logger.error(f"Error sending webhook to Telegram: {e}")
+
+    # Forward to custom service (if configured)
+    if forwarder:
+        try:
+            order_data_for_forward = None
+            if order_update_info:
+                order_data_for_forward = order_update_info.get("order_data")
+
+            await forwarder.forward_webhook(
+                event_payload=event_payload,
+                order_data=order_data_for_forward,
+            )
+        except Exception as e:
+            logger.error(f"Error forwarding webhook: {e}")
 
     # Special handling for shipping documents (Code 15 & 25)
     if event_code in [15, 25]:

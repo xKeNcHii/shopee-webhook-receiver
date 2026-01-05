@@ -4,25 +4,19 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, Request, Response
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Header, Request, Response
 
 from shopee_webhook.core.logger import setup_logger
 from shopee_webhook.core.signature import validate_webhook_request
 from shopee_webhook.handlers.webhook import handle_webhook_event
 from shopee_webhook.integrations.telegram import get_notifier
+from shopee_webhook.integrations.forwarder import WebhookForwarder
 from shopee_webhook.api.client import ShopeeAPIClient
 from shopee_webhook.config.settings import settings
-from shopee_webhook.db.repository import OrderItemRepository
 from shopee_webhook.services.order_service import OrderService
 
 logger = setup_logger(__name__)
 router = APIRouter()
-
-
-async def get_db_session_stub() -> Optional[AsyncSession]:
-    """Stub for database session dependency (will be overridden by app)."""
-    return None
 
 
 @router.get("/")
@@ -41,27 +35,15 @@ async def root() -> dict:
 
 
 @router.get("/health")
-async def health_check(db_session: Optional[AsyncSession] = Depends(get_db_session_stub)) -> dict:
+async def health_check() -> dict:
     """Health check endpoint for monitoring."""
     from pathlib import Path
 
     health_status = {
         "status": "healthy",
-        "service": "shopee-webhook-receiver",
+        "service": "shopee-webhook-forwarder",
         "checks": {},
     }
-
-    # Check database connectivity
-    try:
-        if db_session is not None:
-            # Try a simple query to verify database connectivity
-            await db_session.execute("SELECT 1")
-            health_status["checks"]["database"] = "ok"
-        else:
-            health_status["checks"]["database"] = "not_available"
-    except Exception as e:
-        health_status["checks"]["database"] = f"error: {str(e)}"
-        health_status["status"] = "degraded"
 
     # Check configuration files
     config_checks = {}
@@ -91,6 +73,12 @@ async def health_check(db_session: Optional[AsyncSession] = Depends(get_db_sessi
         health_status["status"] = "degraded"
 
     health_status["checks"]["environment"] = env_checks
+
+    # Check forwarding configuration
+    if hasattr(settings, 'forward_webhook_url') and settings.forward_webhook_url:
+        health_status["checks"]["forwarding"] = "enabled"
+    else:
+        health_status["checks"]["forwarding"] = "disabled"
 
     return health_status
 
@@ -157,10 +145,9 @@ async def shopee_webhook(
     request: Request,
     authorization: Optional[str] = Header(None),
     x_shopee_signature: Optional[str] = Header(None),
-    db_session: Optional[AsyncSession] = Depends(get_db_session_stub),
 ) -> Response:
     """
-    Main Shopee webhook endpoint.
+    Main Shopee webhook endpoint - receives, validates, and forwards webhooks.
 
     Shopee sends HTTP POST requests to this URL with webhook events.
     All events are logged for analysis.
@@ -172,7 +159,6 @@ async def shopee_webhook(
         request: The HTTP request from Shopee
         authorization: Authorization header with webhook signature
         x_shopee_signature: Signature from x-shopee-signature header
-        db_session: Database session (injected by FastAPI)
 
     Returns:
         Empty 200 response (as required by Shopee)
@@ -194,27 +180,31 @@ async def shopee_webhook(
         try:
             event_payload = json.loads(body_str)
 
-            # Create OrderService if database session is available
+            # Create OrderService for fetching order details
             order_service = None
-            if db_session is not None:
-                try:
-                    api_client = ShopeeAPIClient(
-                        partner_id=settings.partner_id,
-                        partner_key=settings.partner_key,
-                        shop_id=settings.shop_id,
-                        access_token=settings.access_token,
-                        refresh_token=settings.refresh_token,
-                        host_api=settings.host_api,
-                    )
-                    repository = OrderItemRepository(db_session)
-                    order_service = OrderService(api_client, repository)
-                except Exception as e:
-                    logger.error(f"Failed to create OrderService: {e}")
+            try:
+                api_client = ShopeeAPIClient(
+                    partner_id=settings.partner_id,
+                    partner_key=settings.partner_key,
+                    shop_id=settings.shop_id,
+                    access_token=settings.access_token,
+                    refresh_token=settings.refresh_token,
+                    host_api=settings.host_api,
+                )
+                order_service = OrderService(api_client)
+            except Exception as e:
+                logger.error(f"Failed to create OrderService: {e}")
+
+            # Create forwarder if URL is configured
+            forwarder = None
+            if hasattr(settings, 'forward_webhook_url') and settings.forward_webhook_url:
+                forwarder = WebhookForwarder(settings.forward_webhook_url)
 
             await handle_webhook_event(
                 event_payload,
                 authorization,
                 order_service=order_service,
+                forwarder=forwarder,
             )
 
             logger.info(
