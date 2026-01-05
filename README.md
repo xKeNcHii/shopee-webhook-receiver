@@ -1,6 +1,6 @@
-# Shopee Webhook Receiver
+# Shopee Webhook Forwarder
 
-Real-time order processing system for Shopee e-commerce platform with Telegram notifications.
+Receives Shopee webhooks, fetches full order details, and forwards to your custom service with optional Telegram notifications.
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg)](https://www.docker.com/)
@@ -8,14 +8,14 @@ Real-time order processing system for Shopee e-commerce platform with Telegram n
 
 ## Features
 
-- **Real-time Notifications** - Instantly receive Shopee order updates via Telegram
-- **Webhook Processing** - Receives and processes all Shopee webhook events (signature validation currently non-functional, see Known Issues)
+- **Webhook Forwarding** - Forwards webhooks to your custom service with enriched order data
 - **Complete Order Data** - Automatic API fetch for comprehensive order details
-- **Persistent Storage** - SQLite database for order tracking and history
+- **Real-time Notifications** - Optional Telegram notifications for order updates
 - **Auto Token Refresh** - Seamless handling of Shopee API token expiration
 - **Smart Messaging** - Intelligent message splitting for large orders (>4000 chars)
 - **Health Monitoring** - Built-in health checks for orchestration systems
 - **Organized Logs** - Date and session-based logging with Singapore timezone
+- **No Database** - Stateless forwarder, delegates persistence to your custom service
 
 ## Known Issues
 
@@ -38,9 +38,8 @@ graph LR
     B -->|Receive| C["Webhook<br/>Handler"]
     C -->|Process| D["Shopee<br/>API Client"]
     D -->|Fetch| E["Order<br/>Details"]
-    E -->|Store| F["SQLite<br/>Database"]
-    E -->|Format| G["Telegram<br/>Notifier"]
-    G -->|Send| H["Telegram<br/>Bot"]
+    E -->|Forward| F["Custom<br/>Service"]
+    E -->|Notify| G["Telegram<br/>Bot"]
 
     style A fill:#d32f2f,stroke:#000,color:#fff
     style B fill:#1976d2,stroke:#000,color:#fff
@@ -48,8 +47,7 @@ graph LR
     style D fill:#00796b,stroke:#000,color:#fff
     style E fill:#f57c00,stroke:#000,color:#fff
     style F fill:#c2185b,stroke:#000,color:#fff
-    style G fill:#283593,stroke:#000,color:#fff
-    style H fill:#0097a7,stroke:#000,color:#fff
+    style G fill:#0097a7,stroke:#000,color:#fff
 ```
 
 ## Webhook Processing Flow
@@ -60,7 +58,7 @@ sequenceDiagram
     participant API as FastAPI Server
     participant OrderService as Order Service
     participant ShopeeAPI as Shopee API
-    participant DB as Database
+    participant CustomService as Custom Service
     participant Telegram as Telegram Bot
 
     Shopee->>API: POST /webhook/shopee
@@ -68,13 +66,17 @@ sequenceDiagram
     OrderService->>ShopeeAPI: GET order details
     ShopeeAPI-->>OrderService: Order data
 
-    OrderService->>DB: Store items
-    DB-->>OrderService: Items saved
-
     OrderService-->>API: Return order info
-    API->>Telegram: Format & send notification
-    Telegram-->>Telegram: Split if >4000 chars
-    Telegram->>Shopee: HTTP 200 OK
+
+    par Forward to Custom Service
+        API->>CustomService: POST order data
+        CustomService-->>API: Acknowledged
+    and Send Telegram Notification
+        API->>Telegram: Format & send notification
+        Telegram-->>Telegram: Split if >4000 chars
+    end
+
+    API->>Shopee: HTTP 200 OK
 ```
 
 ## Quick Start
@@ -129,8 +131,9 @@ python -m uvicorn shopee_webhook.main:app --host 0.0.0.0 --port 8000
 | `ACCESS_TOKEN` | Yes | Shopee API Access Token | `eyJhbGc...` |
 | `REFRESH_TOKEN` | Yes | Shopee API Refresh Token | `eyJhbGc...` |
 | `WEBHOOK_PARTNER_KEY` | Yes | Webhook validation key | `webhook_key_xyz` |
-| `TELEGRAM_BOT_TOKEN` | Yes | Telegram Bot Token | `123456:ABC-DEF` |
-| `TELEGRAM_CHAT_ID` | Yes | Telegram Channel/Chat ID | `-1001234567890` |
+| `FORWARD_WEBHOOK_URL` | No | URL to forward webhooks to | `http://localhost:9000/orders` |
+| `TELEGRAM_BOT_TOKEN` | No | Telegram Bot Token (optional) | `123456:ABC-DEF` |
+| `TELEGRAM_CHAT_ID` | No | Telegram Channel/Chat ID (optional) | `-1001234567890` |
 | `LOG_LEVEL` | No | Logging level | `INFO` (default) |
 
 ### Auto-Generated Files
@@ -165,17 +168,19 @@ Health check endpoint for monitoring.
 ```json
 {
   "status": "healthy|degraded",
-  "service": "shopee-webhook-receiver",
+  "service": "shopee-webhook-forwarder",
   "checks": {
-    "database": "ok|error: ...",
     "config": {
       "tokens_file": "ok|missing",
       "topics_file": "ok|not_created_yet"
     },
     "environment": {
       "partner_id": "ok|missing",
-      "shop_id": "ok|missing"
-    }
+      "shop_id": "ok|missing",
+      "telegram_bot_token": "ok|missing",
+      "telegram_chat_id": "ok|missing"
+    },
+    "forwarding": "enabled|disabled"
   }
 }
 ```
@@ -188,17 +193,18 @@ This system is **extensible for all Shopee webhook event codes**. It dynamically
 
 | Code | Event Type | Processing |
 |------|------------|------------|
-| 3 | Order Status Update | Full order fetch + DB storage + Telegram notification |
-| 4 | Order Tracking Number | Full order fetch + DB storage + Telegram notification |
-| 8 | Reserved Stock Change | Event logging + Telegram notification |
-| 15 | Shipping Document Status | Event logging + Telegram notification |
-| 25 | Booking Shipping Document | Event logging + Telegram notification |
+| 3 | Order Status Update | Full order fetch + forwarding + Telegram notification |
+| 4 | Order Tracking Number | Full order fetch + forwarding + Telegram notification |
+| 8 | Reserved Stock Change | Event forwarding + Telegram notification |
+| 15 | Shipping Document Status | Event forwarding + Telegram notification |
+| 25 | Booking Shipping Document | Event forwarding + Telegram notification |
 
 The system automatically:
 - Creates Telegram forum topics for each event code
 - Logs all events to `logs/webhook_events_YYYY-MM-DD.json`
-- Processes orders for event codes 3 and 4
-- Sends formatted notifications for all event types
+- Fetches full order details for event codes 3 and 4
+- Forwards all events to your custom service (if configured)
+- Sends formatted Telegram notifications (if configured)
 
 **Note:** Enable specific event codes in your Shopee Partner Console webhook settings.
 
@@ -227,26 +233,45 @@ If the message exceeds 4000 characters:
 - Each part is sent sequentially to same Telegram topic
 - Preserves formatting and readability
 
-## Database Schema
+## Forwarded Payload Format
 
-Orders are stored with 12 columns per item:
+When `FORWARD_WEBHOOK_URL` is configured, the forwarder sends:
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `order_id` | String | Shopee order SN |
-| `date_time` | DateTime | Order creation time (Singapore TZ) |
-| `buyer` | String | Buyer username |
-| `platform` | String | "Shopee" |
-| `product_name` | String | Item name |
-| `item_type` | String | Variation/model name |
-| `parent_sku` | String | Item's base SKU |
-| `sku` | String | Model SKU |
-| `quantity` | Int | Quantity purchased |
-| `total_sale` | Float | Order total amount |
-| `shopee_status` | String | Shopee order status |
-| `status` | String | Order status |
+```json
+{
+  "event": {
+    "code": 3,
+    "shop_id": 443972786,
+    "timestamp": 1704337899,
+    "data": {
+      "ordersn": "2601033YS140TT",
+      "status": "READY_TO_SHIP"
+    }
+  },
+  "order_data": {
+    "order_id": "2601033YS140TT",
+    "shop_id": 443972786,
+    "status": "READY_TO_SHIP",
+    "buyer_username": "buyer123",
+    "items": [
+      {
+        "item_name": "Product Name",
+        "item_sku": "SKU123",
+        "model_sku": "SKU123-VARIANT",
+        "variation_name": "Size L",
+        "quantity": 2,
+        "total_amount": 99.90
+      }
+    ],
+    "total_amount": 99.90,
+    "currency": "SGD",
+    "create_time": 1704337899,
+    "update_time": 1704337899
+  }
+}
+```
 
-**Location:** `data/shopee_orders.db` (auto-created, gitignored)
+Your custom service should handle this POST request and store the data as needed.
 
 ## Logging
 
@@ -305,10 +330,14 @@ This sends a test webhook to `http://localhost:8000/webhook/shopee` and displays
 curl http://localhost:8000/health | python -m json.tool
 ```
 
-### View Database
+### View Logs
 
 ```bash
-sqlite3 data/shopee_orders.db "SELECT * FROM order_items LIMIT 5;"
+# View recent webhook events
+cat logs/webhook_events_*.json | tail -20
+
+# Pretty print JSON logs
+cat logs/webhook_*.log | jq '.'
 ```
 
 ## Troubleshooting
@@ -337,14 +366,16 @@ sqlite3 data/shopee_orders.db "SELECT * FROM order_items LIMIT 5;"
 3. Ensure bot has permission to post in the channel
 4. Check health endpoint: `curl http://localhost:8000/health`
 
-### Database Lock/Connection Errors
+### Webhook Forwarding Not Working
 
-**Issue**: Database is locked or operational error
+**Issue**: Custom service not receiving webhooks
 
 **Solution**:
-1. Delete `data/shopee_orders.db` (will recreate on restart)
-2. Restart container: `docker-compose restart`
-3. Check file permissions in `data/` directory
+1. Verify `FORWARD_WEBHOOK_URL` is set in `.env`
+2. Ensure custom service is running and accessible
+3. Check custom service logs for incoming requests
+4. Verify custom service accepts POST with JSON payload
+5. Check forwarder logs: `docker-compose logs -f webhook-server`
 
 ## Deployment
 
@@ -379,7 +410,7 @@ docker-compose ps
 ### Graceful Shutdown
 
 - Waits for all pending tasks to complete
-- Closes database connections cleanly
+- Ensures all webhooks are forwarded before shutdown
 - No data loss during restart
 
 ## Environment Example
@@ -395,7 +426,12 @@ REFRESH_TOKEN=your_refresh_token_here
 # Webhook Security
 WEBHOOK_PARTNER_KEY=your_webhook_key_here
 
-# Telegram Bot
+# Webhook Forwarding (Optional)
+# Forward webhooks to your custom service
+# Leave empty to disable forwarding
+FORWARD_WEBHOOK_URL=http://localhost:9000/process-order
+
+# Telegram Bot (Optional)
 TELEGRAM_BOT_TOKEN=123456789:ABCDefGHIjklmnoPQRstuvWXYz
 TELEGRAM_CHAT_ID=-1001234567890
 
@@ -418,10 +454,9 @@ stateDiagram-v2
 
     ValidateSignature --> Valid: Valid Signature
     Valid --> FetchOrder: Get Order from API
-    FetchOrder --> StoreDB: Save Items to Database
-    StoreDB --> FormatTelegram: Format Order Details
-    FormatTelegram --> SendNotification: Send to Telegram
-    SendNotification --> Response200: Return 200 OK
+    FetchOrder --> ForwardWebhook: Forward to Custom Service
+    ForwardWebhook --> SendTelegram: Send Telegram Notification
+    SendTelegram --> Response200: Return 200 OK
     Response200 --> WaitWebhook
 ```
 
