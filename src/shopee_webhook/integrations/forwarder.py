@@ -29,14 +29,15 @@ class WebhookForwarder:
     async def forward_webhook(
         self,
         event_payload: Dict[str, Any],
-        order_data: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
-        Forward webhook event and order data to custom service.
+        Forward raw webhook event to custom service.
+
+        Only the minimal webhook event from Shopee is forwarded.
+        The processor can fetch full order details from Shopee API if needed.
 
         Args:
             event_payload: Raw webhook event from Shopee
-            order_data: Formatted order data from API (if available)
 
         Returns:
             True if forwarding succeeded, False otherwise
@@ -46,19 +47,14 @@ class WebhookForwarder:
             return False
 
         try:
-            # Prepare payload
-            payload = {
-                "event": event_payload,
-                "order_data": order_data,
-            }
-
-            # Forward to custom service
+            # Forward only the raw webhook event
+            # Processor can fetch order details from Shopee API if needed
             logger.info(f"Forwarding webhook to {self.forward_url}")
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
                     self.forward_url,
-                    json=payload,
+                    json=event_payload,
                 )
 
                 response.raise_for_status()

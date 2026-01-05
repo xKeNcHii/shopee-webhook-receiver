@@ -66,15 +66,11 @@ async def handle_webhook_event(
         logger.error(f"Error sending webhook to Telegram: {e}")
 
     # Forward to custom service (if configured)
+    # Only forward the raw webhook event - processor can fetch order details if needed
     if forwarder:
         try:
-            order_data_for_forward = None
-            if order_update_info:
-                order_data_for_forward = order_update_info.get("order_data")
-
             await forwarder.forward_webhook(
                 event_payload=event_payload,
-                order_data=order_data_for_forward,
             )
         except Exception as e:
             logger.error(f"Error forwarding webhook: {e}")

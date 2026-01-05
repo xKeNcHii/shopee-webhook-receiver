@@ -235,43 +235,38 @@ If the message exceeds 4000 characters:
 
 ## Forwarded Payload Format
 
-When `FORWARD_WEBHOOK_URL` is configured, the forwarder sends:
+When `FORWARD_WEBHOOK_URL` is configured, the forwarder sends **only the raw webhook event**:
 
 ```json
 {
-  "event": {
-    "code": 3,
-    "shop_id": 443972786,
-    "timestamp": 1704337899,
-    "data": {
-      "ordersn": "2601033YS140TT",
-      "status": "READY_TO_SHIP"
-    }
-  },
-  "order_data": {
-    "order_id": "2601033YS140TT",
-    "shop_id": 443972786,
-    "status": "READY_TO_SHIP",
-    "buyer_username": "buyer123",
-    "items": [
-      {
-        "item_name": "Product Name",
-        "item_sku": "SKU123",
-        "model_sku": "SKU123-VARIANT",
-        "variation_name": "Size L",
-        "quantity": 2,
-        "total_amount": 99.90
-      }
-    ],
-    "total_amount": 99.90,
-    "currency": "SGD",
-    "create_time": 1704337899,
-    "update_time": 1704337899
+  "code": 3,
+  "shop_id": 443972786,
+  "timestamp": 1704337899,
+  "data": {
+    "ordersn": "2601033YS140TT",
+    "status": "READY_TO_SHIP"
   }
 }
 ```
 
-Your custom service should handle this POST request and store the data as needed.
+**Why only the event?**
+- **Security**: No sensitive customer data (addresses, amounts) transmitted unnecessarily
+- **Separation of Concerns**: Your processor decides what data it needs
+- **Flexibility**: Fetch different fields based on your requirements
+- **Performance**: Faster forwarding without API calls
+
+**Getting Full Order Details:**
+
+Your processor can fetch full order details from Shopee API if needed:
+```python
+# In your processor:
+if event['code'] in [3, 4]:  # Order events
+    order_sn = event['data']['ordersn']
+    order_details = await shopee_api.get_order_detail(order_sn)
+    # Process as needed
+```
+
+**Note:** The forwarder fetches order details **only for Telegram notifications**, not for forwarding.
 
 ## Logging
 
