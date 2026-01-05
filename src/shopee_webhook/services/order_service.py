@@ -145,8 +145,8 @@ class OrderService:
             "buyer": order.buyer_username,
             "platform": "Shopee",
             "status": order.order_status,
-            "create_time": datetime.utcfromtimestamp(order.create_time),
-            "update_time": datetime.utcfromtimestamp(order.update_time),
+            "create_time": datetime.utcfromtimestamp(order.create_time).isoformat(),
+            "update_time": datetime.utcfromtimestamp(order.update_time).isoformat(),
             # Financial info
             "total_amount": order.total_amount,
             "currency": order.currency,
@@ -175,7 +175,7 @@ class OrderService:
         Returns:
             List of dicts with item details
         """
-        order_datetime = datetime.utcfromtimestamp(order.create_time)
+        order_datetime = datetime.utcfromtimestamp(order.create_time).isoformat()
         source_items = order.item_list
 
         # Parse each item
