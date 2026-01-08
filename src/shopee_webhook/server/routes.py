@@ -2,9 +2,11 @@
 
 import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Header, Request, Response
+from fastapi.responses import FileResponse
 
 from shopee_webhook.core.logger import setup_logger
 from shopee_webhook.core.signature import validate_webhook_request
@@ -18,6 +20,9 @@ from shopee_webhook.services.order_service import OrderService
 logger = setup_logger(__name__)
 router = APIRouter()
 
+# Dashboard HTML file path
+DASHBOARD_HTML = Path(__file__).parent / "static" / "dashboard.html"
+
 
 @router.get("/")
 async def root() -> dict:
@@ -28,10 +33,19 @@ async def root() -> dict:
         "endpoints": {
             "webhook": "POST /webhook/shopee",
             "health": "GET /health",
+            "dashboard": "GET /dashboard",
             "docs": "GET /docs",
             "telegram_info": "GET /telegram/info",
         },
     }
+
+
+@router.get("/dashboard")
+async def dashboard():
+    """Serve the webhook monitoring dashboard."""
+    if not DASHBOARD_HTML.exists():
+        return {"error": "Dashboard not found"}
+    return FileResponse(DASHBOARD_HTML, media_type="text/html")
 
 
 @router.get("/health")

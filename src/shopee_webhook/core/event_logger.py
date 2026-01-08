@@ -8,11 +8,14 @@ JSONL format allows easy parsing and streaming of events.
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 from shopee_webhook.core.logger import setup_logger
+
+# Singapore timezone (UTC+8)
+SINGAPORE_TZ = timezone(timedelta(hours=8))
 
 logger = setup_logger(__name__)
 
@@ -26,7 +29,8 @@ def log_webhook_event(
     shop_id: int,
     event_data: Dict[str, Any],
     authorization_header: Optional[str] = None,
-    raw_body: Optional[str] = None
+    raw_body: Optional[str] = None,
+    processing_status: Optional[Dict[str, Any]] = None
 ) -> str:
     """
     Log a webhook event to a daily rotating JSONL file.
@@ -39,17 +43,18 @@ def log_webhook_event(
         event_data: Full event payload from webhook
         authorization_header: Authorization header (truncated for security)
         raw_body: Raw request body (optional, for debugging)
+        processing_status: Processing status from Telegram/Forwarder (optional)
 
     Returns:
         Path to the log file where event was written
     """
-    # Create filename based on current date
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    # Create filename based on current date in Singapore timezone
+    date_str = datetime.now(SINGAPORE_TZ).strftime("%Y-%m-%d")
     log_file = LOGS_DIR / f"webhook_events_{date_str}.json"
 
     # Prepare log entry
     log_entry = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(SINGAPORE_TZ).isoformat(),
         "event_code": event_code,
         "shop_id": shop_id,
         "event_data": event_data,
@@ -58,6 +63,10 @@ def log_webhook_event(
             "body_size": len(raw_body) if raw_body else 0
         }
     }
+
+    # Add processing status if provided (for dashboard monitoring)
+    if processing_status:
+        log_entry["processing_status"] = processing_status
 
     try:
         # Append to file (one JSON object per line for JSONL format)
@@ -86,7 +95,7 @@ def get_log_file_for_date(date_str: str = None) -> Path:
         Path to the log file for that date
     """
     if date_str is None:
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = datetime.now(SINGAPORE_TZ).strftime("%Y-%m-%d")
 
     return LOGS_DIR / f"webhook_events_{date_str}.json"
 
@@ -142,7 +151,7 @@ def get_event_statistics(date_str: str = None) -> Dict[str, Any]:
 
     if not events:
         return {
-            "date": date_str or datetime.now().strftime("%Y-%m-%d"),
+            "date": date_str or datetime.now(SINGAPORE_TZ).strftime("%Y-%m-%d"),
             "total_events": 0,
             "events_by_code": {},
             "shops": []
@@ -160,11 +169,11 @@ def get_event_statistics(date_str: str = None) -> Dict[str, Any]:
         shops.add(shop_id)
 
     return {
-        "date": date_str or datetime.now().strftime("%Y-%m-%d"),
+        "date": date_str or datetime.now(SINGAPORE_TZ).strftime("%Y-%m-%d"),
         "total_events": len(events),
-        "events_by_code": dict(sorted(events_by_code.items())),
+        "events_by_code": dict(sorted(events_by_code.items(), key=lambda x: (x[0] is None, x[0]))),
         "unique_shops": len(shops),
-        "shops": sorted(list(shops))
+        "shops": sorted([s for s in shops if s is not None]) + ([None] if None in shops else [])
     }
 
 

@@ -14,6 +14,8 @@ Receives Shopee webhooks, fetches full order details, and forwards to your custo
 - **Auto Token Refresh** - Seamless handling of Shopee API token expiration
 - **Smart Messaging** - Intelligent message splitting for large orders (>4000 chars)
 - **Health Monitoring** - Built-in health checks for orchestration systems
+- **Error Monitoring** - GlitchTip/Sentry integration for error tracking and alerts
+- **Dashboard** - Web dashboard for monitoring webhooks and configuration
 - **Organized Logs** - Date and session-based logging with Singapore timezone
 - **No Database** - Stateless forwarder, delegates persistence to your custom service
 
@@ -134,6 +136,8 @@ python -m uvicorn shopee_webhook.main:app --host 0.0.0.0 --port 8000
 | `FORWARD_WEBHOOK_URL` | No | URL to forward webhooks to | `http://localhost:9000/orders` |
 | `TELEGRAM_BOT_TOKEN` | No | Telegram Bot Token (optional) | `123456:ABC-DEF` |
 | `TELEGRAM_CHAT_ID` | No | Telegram Channel/Chat ID (optional) | `-1001234567890` |
+| `GLITCHTIP_DSN` | No | GlitchTip/Sentry DSN for error monitoring | `https://key@host.com/id` |
+| `DASHBOARD_API_KEY` | No | Dashboard authentication key | Random string |
 | `LOG_LEVEL` | No | Logging level | `INFO` (default) |
 
 ### Auto-Generated Files
@@ -143,8 +147,11 @@ These are created automatically on first run:
 ```
 config/
   ├── shopee_tokens.json        # Cached tokens with expiration
-  └── telegram_topics.json      # Event code → Topic ID mappings
+  ├── telegram_topics.json      # Event code → Topic ID mappings
+  └── runtime_config.json       # Runtime configuration from dashboard
 ```
+
+See [GLITCHTIP.md](GLITCHTIP.md) for GlitchTip error monitoring setup.
 
 ## API Endpoints
 
@@ -287,8 +294,8 @@ All logs are structured JSON for easy parsing:
 {
   "timestamp": "2026-01-04T03:11:39.464868+08:00",
   "level": "INFO",
-  "logger": "shopee_webhook.services.order_service",
-  "message": "Stored 4 items for order 2601033YS140TT in database"
+  "logger": "shopee_webhook.handlers.webhook",
+  "message": "Successfully processed webhook for order 2601033YS140TT"
 }
 ```
 

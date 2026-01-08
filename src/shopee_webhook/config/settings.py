@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # Forwarding Configuration
     forward_webhook_url: Optional[str] = None
 
+    # Dashboard Configuration
+    dashboard_api_key: Optional[str] = None
+
+    # GlitchTip Error Monitoring
+    glitchtip_dsn: Optional[str] = None
+
     class Config:
         """Pydantic config."""
 

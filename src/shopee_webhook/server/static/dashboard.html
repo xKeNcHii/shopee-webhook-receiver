@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopee Webhook Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-600: #4b5563;
+            --gray-900: #111827;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--gray-50);
+            padding: 20px;
+            color: var(--gray-900);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            padding: 20px;
+            background: var(--gray-100);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: var(--gray-600);
+        }
+
+        .success-text { color: var(--success); }
+        .danger-text { color: var(--danger); }
+        .warning-text { color: var(--warning); }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        th {
+            background: var(--gray-50);
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--gray-600);
+        }
+
+        td {
+            font-size: 14px;
+        }
+
+        tr:hover {
+            background: var(--gray-50);
+        }
+
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 6px;
+            background: var(--primary);
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: var(--primary-hover);
+        }
+
+        button.secondary {
+            background: var(--gray-600);
+        }
+
+        button.secondary:hover {
+            background: var(--gray-900);
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--gray-300);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        #auth-section {
+            text-align: center;
+            padding: 60px 40px;
+        }
+
+        #dashboard {
+            display: none;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--gray-200);
+        }
+
+        .tab {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--gray-600);
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--primary);
+            background: var(--gray-50);
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge-danger {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .badge-gray {
+            background: var(--gray-200);
+            color: var(--gray-600);
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--gray-600);
+        }
+
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: var(--gray-600);
+        }
+
+        @media (max-width: 768px) {
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Login Section -->
+        <div id="auth-section" class="card">
+            <h2>🔐 Dashboard Login</h2>
+            <p style="margin: 20px 0; color: var(--gray-600);">Enter your API key to access the dashboard</p>
+            <input
+                type="password"
+                id="api-key-input"
+                placeholder="Enter API Key"
+                style="max-width: 400px; margin: 0 auto 20px;"
+                onkeypress="if(event.key === 'Enter') login()">
+            <br>
+            <button onclick="login()">Login</button>
+            <p id="auth-error" style="color: var(--danger); margin-top: 10px; display: none;"></p>
+        </div>
+
+        <!-- Dashboard Section -->
+        <div id="dashboard">
+            <!-- Header -->
+            <div class="card">
+                <div class="header">
+                    <h1>🔔 Shopee Webhook Monitor</h1>
+                    <button class="secondary" onclick="logout()">Logout</button>
+                </div>
+                <p style="color: var(--gray-600); font-size: 14px;">Real-time webhook monitoring and configuration</p>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="stats" id="stats-container">
+                <div class="stat-box">
+                    <div class="stat-value" id="total-webhooks">-</div>
+                    <div class="stat-label">Total Webhooks Today</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value success-text" id="telegram-success">-</div>
+                    <div class="stat-label">Telegram Success</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value danger-text" id="telegram-failed">-</div>
+                    <div class="stat-label">Telegram Failed</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value success-text" id="forwarder-success">-</div>
+                    <div class="stat-label">Forwarder Success</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="card">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('webhooks')">Webhooks</button>
+                    <button class="tab" onclick="switchTab('config')">Configuration</button>
+                    <button class="tab" onclick="switchTab('errors')">Errors</button>
+                </div>
+
+                <!-- Webhooks Tab -->
+                <div id="tab-webhooks" class="tab-content active">
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center;">
+                        <label style="font-weight: 600;">Date:</label>
+                        <input type="date" id="webhook-date" style="width: auto;">
+                        <button onclick="setToday()" class="secondary" style="padding: 8px 12px;">Today</button>
+                        <button onclick="setYesterday()" class="secondary" style="padding: 8px 12px;">Yesterday</button>
+                        <span id="webhook-count" style="margin-left: auto; color: var(--gray-600);"></span>
+                    </div>
+                    <div id="webhooks-loading" class="loading">Loading webhooks...</div>
+                    <table id="webhooks-table" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Event Code</th>
+                                <th>Shop ID</th>
+                                <th>Order SN</th>
+                                <th>Telegram</th>
+                                <th>Forwarder</th>
+                            </tr>
+                        </thead>
+                        <tbody id="webhooks-body"></tbody>
+                    </table>
+                    <div id="webhooks-empty" class="empty" style="display: none;">
+                        No webhooks received on this date
+                    </div>
+                    <div id="webhooks-pagination" style="display: none; margin-top: 20px; text-align: center;">
+                        <button onclick="previousPage()" id="btn-prev" class="secondary" style="margin-right: 10px;">← Previous</button>
+                        <span id="page-info" style="margin: 0 15px; color: var(--gray-600);"></span>
+                        <button onclick="nextPage()" id="btn-next" class="secondary" style="margin-left: 10px;">Next →</button>
+                    </div>
+                </div>
+
+                <!-- Configuration Tab -->
+                <div id="tab-config" class="tab-content">
+                    <div id="config-message"></div>
+
+                    <h2>Telegram Configuration</h2>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="telegram-enabled"> Enable Telegram Notifications
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>Bot Token</label>
+                        <input type="text" id="telegram-token" placeholder="123456:ABC-DEF...">
+                    </div>
+                    <div class="form-group">
+                        <label>Chat ID</label>
+                        <input type="text" id="telegram-chat" placeholder="-1001234567890">
+                    </div>
+                    <button onclick="updateTelegramConfig()">Update Telegram Config</button>
+
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--gray-200);">
+
+                    <h2>Forwarder Configuration</h2>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="forwarder-enabled"> Enable Webhook Forwarding
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>Forwarder URL</label>
+                        <input type="text" id="forwarder-url" placeholder="http://example.com/webhook">
+                    </div>
+                    <button onclick="updateForwarderConfig()">Update Forwarder Config</button>
+
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--gray-200);">
+
+                    <h2>GlitchTip Error Monitoring</h2>
+                    <p style="color: var(--gray-600); font-size: 14px; margin-bottom: 15px;">Sentry-compatible error tracking and monitoring. Restart required after changes.</p>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="glitchtip-enabled"> Enable GlitchTip
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>DSN (Data Source Name)</label>
+                        <input type="text" id="glitchtip-dsn" placeholder="https://key@glitchtip.example.com/project">
+                    </div>
+                    <button onclick="updateGlitchTipConfig()">Update GlitchTip Config</button>
+                </div>
+
+                <!-- Errors Tab -->
+                <div id="tab-errors" class="tab-content">
+                    <div id="errors-loading" class="loading">Loading errors...</div>
+                    <table id="errors-table" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Service</th>
+                                <th>Event Code</th>
+                                <th>Order SN</th>
+                                <th>Error</th>
+                            </tr>
+                        </thead>
+                        <tbody id="errors-body"></tbody>
+                    </table>
+                    <div id="errors-empty" class="empty" style="display: none;">
+                        No errors today - all systems operational!
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let apiKey = sessionStorage.getItem('dashboard_api_key');
+        let refreshInterval = null;
+
+        // Pagination state
+        let currentPage = 1;
+        let pageSize = 100;
+        let totalWebhooks = 0;
+
+        // Initialize
+        if (apiKey) {
+            showDashboard();
+        }
+
+        function login() {
+            apiKey = document.getElementById('api-key-input').value.trim();
+            if (!apiKey) {
+                showError('auth-error', 'Please enter an API key');
+                return;
+            }
+
+            sessionStorage.setItem('dashboard_api_key', apiKey);
+
+            // Test API key by loading data
+            fetchStats().then(() => {
+                showDashboard();
+            }).catch(err => {
+                sessionStorage.removeItem('dashboard_api_key');
+                apiKey = null;
+                showError('auth-error', 'Invalid API key');
+            });
+        }
+
+        function logout() {
+            sessionStorage.removeItem('dashboard_api_key');
+            apiKey = null;
+            clearInterval(refreshInterval);
+            location.reload();
+        }
+
+        function showDashboard() {
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+
+            // Initialize date picker to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('webhook-date').value = today;
+
+            // Add change event listener to date picker
+            document.getElementById('webhook-date').addEventListener('change', () => {
+                currentPage = 1;
+                fetchWebhooks();
+            });
+
+            loadData();
+            // Auto-refresh every 5 seconds
+            refreshInterval = setInterval(loadData, 5000);
+        }
+
+        function showError(elementId, message) {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.style.display = 'block';
+            setTimeout(() => {
+                el.style.display = 'none';
+            }, 5000);
+        }
+
+        function showMessage(message, isError = false) {
+            const el = document.getElementById('config-message');
+            el.className = isError ? 'alert alert-error' : 'alert alert-success';
+            el.textContent = message;
+            el.style.display = 'block';
+            setTimeout(() => {
+                el.style.display = 'none';
+            }, 5000);
+        }
+
+        async function fetchAPI(endpoint, options = {}) {
+            const response = await fetch(`/api/dashboard${endpoint}`, {
+                ...options,
+                headers: {
+                    'X-API-Key': apiKey,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            });
+
+            if (response.status === 401) {
+                logout();
+                throw new Error('Unauthorized');
+            }
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            return response.json();
+        }
+
+        async function loadData() {
+            try {
+                await Promise.all([fetchStats(), fetchWebhooks(), fetchConfig()]);
+            } catch (err) {
+                console.error('Error loading data:', err);
+            }
+        }
+
+        async function fetchStats() {
+            const stats = await fetchAPI('/stats');
+
+            document.getElementById('total-webhooks').textContent = stats.summary.total_webhooks;
+            document.getElementById('telegram-success').textContent = stats.summary.telegram.success;
+            document.getElementById('telegram-failed').textContent = stats.summary.telegram.failed;
+            document.getElementById('forwarder-success').textContent = stats.summary.forwarder.success;
+
+            // Update errors tab
+            renderErrors(stats.recent_errors || []);
+        }
+
+        async function fetchWebhooks() {
+            const selectedDate = document.getElementById('webhook-date').value;
+            const offset = (currentPage - 1) * pageSize;
+            const data = await fetchAPI(`/events?limit=${pageSize}&offset=${offset}&date_str=${selectedDate}`);
+
+            const loading = document.getElementById('webhooks-loading');
+            const table = document.getElementById('webhooks-table');
+            const empty = document.getElementById('webhooks-empty');
+            const tbody = document.getElementById('webhooks-body');
+            const countEl = document.getElementById('webhook-count');
+            const pagination = document.getElementById('webhooks-pagination');
+
+            loading.style.display = 'none';
+            totalWebhooks = data.total;
+
+            // Update count
+            countEl.textContent = `${data.total} webhooks`;
+
+            if (data.events.length === 0) {
+                table.style.display = 'none';
+                empty.style.display = 'block';
+                pagination.style.display = 'none';
+                return;
+            }
+
+            empty.style.display = 'none';
+            table.style.display = 'table';
+
+            // Display times (already in Singapore timezone from server)
+            tbody.innerHTML = data.events.map(e => {
+                const datetime = new Date(e.timestamp);
+                const date = datetime.toLocaleDateString('en-SG');
+                const time = datetime.toLocaleTimeString('en-SG', { hour12: false });
+                const telegramStatus = e.processing_status?.telegram?.success;
+                const forwarderStatus = e.processing_status?.forwarder?.success;
+
+                return `
+                    <tr>
+                        <td>${date}</td>
+                        <td>${time}</td>
+                        <td>${e.event_code}</td>
+                        <td>${e.shop_id || '-'}</td>
+                        <td>${e.event_data?.ordersn || '-'}</td>
+                        <td>${renderStatus(telegramStatus)}</td>
+                        <td>${renderStatus(forwarderStatus)}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Update pagination controls
+            updatePagination();
+        }
+
+        function updatePagination() {
+            const pagination = document.getElementById('webhooks-pagination');
+            const pageInfo = document.getElementById('page-info');
+            const btnPrev = document.getElementById('btn-prev');
+            const btnNext = document.getElementById('btn-next');
+
+            const totalPages = Math.ceil(totalWebhooks / pageSize);
+
+            if (totalPages > 1) {
+                pagination.style.display = 'block';
+                const start = (currentPage - 1) * pageSize + 1;
+                const end = Math.min(currentPage * pageSize, totalWebhooks);
+                pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${start}-${end} of ${totalWebhooks})`;
+
+                btnPrev.disabled = currentPage === 1;
+                btnNext.disabled = currentPage === totalPages;
+            } else {
+                pagination.style.display = 'none';
+            }
+        }
+
+        function nextPage() {
+            const totalPages = Math.ceil(totalWebhooks / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                fetchWebhooks();
+            }
+        }
+
+        function previousPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                fetchWebhooks();
+            }
+        }
+
+        function setToday() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('webhook-date').value = today;
+            currentPage = 1;
+            fetchWebhooks();
+        }
+
+        function setYesterday() {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            document.getElementById('webhook-date').value = yesterday.toISOString().split('T')[0];
+            currentPage = 1;
+            fetchWebhooks();
+        }
+
+        function renderStatus(status) {
+            if (status === true) {
+                return '<span class="badge badge-success">✓ Success</span>';
+            } else if (status === false) {
+                return '<span class="badge badge-danger">✗ Failed</span>';
+            } else {
+                return '<span class="badge badge-gray">-</span>';
+            }
+        }
+
+        function renderErrors(errors) {
+            const loading = document.getElementById('errors-loading');
+            const table = document.getElementById('errors-table');
+            const empty = document.getElementById('errors-empty');
+            const tbody = document.getElementById('errors-body');
+
+            loading.style.display = 'none';
+
+            if (errors.length === 0) {
+                table.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+            table.style.display = 'table';
+
+            tbody.innerHTML = errors.map(e => {
+                const datetime = new Date(e.timestamp);
+                const time = datetime.toLocaleTimeString('en-SG', { hour12: false });
+                return `
+                    <tr>
+                        <td style="white-space: nowrap;">${time}</td>
+                        <td style="text-transform: capitalize;">${e.service}</td>
+                        <td>${e.event_code}</td>
+                        <td style="font-family: monospace; font-size: 11px;">${e.order_sn || '-'}</td>
+                        <td style="color: var(--danger); font-size: 12px; max-width: 300px; word-wrap: break-word;">${e.error}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function fetchConfig() {
+            const config = await fetchAPI('/config');
+
+            // Telegram config
+            document.getElementById('telegram-enabled').checked = config.telegram.enabled || false;
+            document.getElementById('telegram-token').placeholder = config.telegram.bot_token_masked || '123456:ABC...';
+            document.getElementById('telegram-chat').placeholder = config.telegram.chat_id || '-1001234567890';
+
+            // Forwarder config
+            document.getElementById('forwarder-enabled').checked = config.forwarder.enabled || false;
+            document.getElementById('forwarder-url').placeholder = config.forwarder.url_masked || 'http://example.com/webhook';
+
+            // GlitchTip config
+            document.getElementById('glitchtip-enabled').checked = config.glitchtip?.enabled || false;
+            document.getElementById('glitchtip-dsn').placeholder = config.glitchtip?.dsn_masked || 'https://key@glitchtip.example.com/project';
+        }
+
+        async function updateTelegramConfig() {
+            const enabled = document.getElementById('telegram-enabled').checked;
+            const token = document.getElementById('telegram-token').value.trim();
+            const chatId = document.getElementById('telegram-chat').value.trim();
+
+            const config = { enabled };
+            if (token) config.bot_token = token;
+            if (chatId) config.chat_id = chatId;
+
+            try {
+                const result = await fetchAPI('/config/telegram', {
+                    method: 'PUT',
+                    body: JSON.stringify(config)
+                });
+
+                if (result.success) {
+                    showMessage('✓ Telegram config updated and saved!');
+                    await fetchConfig();
+                } else {
+                    showMessage(result.message || 'Failed to update config', true);
+                }
+            } catch (err) {
+                showMessage('Error: ' + err.message, true);
+            }
+        }
+
+        async function updateForwarderConfig() {
+            const enabled = document.getElementById('forwarder-enabled').checked;
+            const url = document.getElementById('forwarder-url').value.trim();
+
+            const config = { enabled };
+            if (url) config.url = url;
+
+            try {
+                const result = await fetchAPI('/config/forwarder', {
+                    method: 'PUT',
+                    body: JSON.stringify(config)
+                });
+
+                if (result.success) {
+                    showMessage('✓ Forwarder config updated and saved!');
+                    await fetchConfig();
+                } else {
+                    showMessage(result.message || 'Failed to update config', true);
+                }
+            } catch (err) {
+                showMessage('Error: ' + err.message, true);
+            }
+        }
+
+        async function updateGlitchTipConfig() {
+            const enabled = document.getElementById('glitchtip-enabled').checked;
+            const dsn = document.getElementById('glitchtip-dsn').value.trim();
+
+            const config = { enabled };
+            if (dsn) config.dsn = dsn;
+
+            try {
+                const result = await fetchAPI('/config/glitchtip', {
+                    method: 'PUT',
+                    body: JSON.stringify(config)
+                });
+
+                if (result.success) {
+                    showMessage('✓ GlitchTip config updated! Restart container for changes to take effect.');
+                    await fetchConfig();
+                } else {
+                    showMessage(result.message || 'Failed to update config', true);
+                }
+            } catch (err) {
+                showMessage('Error: ' + err.message, true);
+            }
+        }
+
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+    </script>
+</body>
+</html>

@@ -71,9 +71,15 @@ class WebhookForwarder:
             return False
 
         except httpx.TimeoutException:
-            logger.error(f"Timeout forwarding webhook to {self.forward_url}")
+            logger.warning(f"Timeout forwarding webhook to {self.forward_url} (service may be down)")
+            return False
+
+        except httpx.ConnectError:
+            logger.warning(
+                f"Cannot connect to forwarding endpoint {self.forward_url} (service not running or unreachable)"
+            )
             return False
 
         except Exception as e:
-            logger.error(f"Error forwarding webhook: {e}", exc_info=True)
+            logger.error(f"Unexpected error forwarding webhook: {e}", exc_info=True)
             return False

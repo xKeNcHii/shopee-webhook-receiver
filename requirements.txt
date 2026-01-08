@@ -6,10 +6,8 @@ requests>=2.31.0
 pydantic>=2.5.0
 pydantic-settings>=2.0.0
 
-# Database
-sqlalchemy[asyncio]>=2.0.0
-aiosqlite>=0.19.0
-alembic>=1.12.0
-
 # HTTP Client
 httpx>=0.25.0
+
+# Error Monitoring
+sentry-sdk[fastapi]>=1.40.0

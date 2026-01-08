@@ -79,34 +79,3 @@ class OrderDetailResponse(BaseModel):
 
     class Config:
         extra = "allow"
-
-
-class OrderItemCreate(BaseModel):
-    """Data for creating an OrderItem database record."""
-
-    order_id: str
-    date_time: datetime
-    buyer: Optional[str] = None
-    platform: str = "Shopee"
-    product_name: Optional[str] = None
-    item_type: Optional[str] = None
-    parent_sku: Optional[str] = None
-    sku: Optional[str] = None
-    quantity: int = 1
-    total_sale: Optional[float] = None
-    shopee_status: Optional[str] = None
-    status: str = ""
-
-    class Config:
-        from_attributes = True
-
-
-class OrderItemInDB(OrderItemCreate):
-    """Order item as stored in database."""
-
-    id: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True

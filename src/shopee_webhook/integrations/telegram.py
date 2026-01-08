@@ -387,10 +387,34 @@ _notifier = None
 
 
 def get_notifier() -> TelegramNotifier:
-    """Get or create global Telegram notifier instance."""
+    """
+    Get or create global Telegram notifier instance.
+
+    Checks runtime config first, then falls back to environment variables.
+    """
     global _notifier
     if _notifier is None:
-        _notifier = TelegramNotifier()
+        # Check runtime config first (allows dashboard updates)
+        try:
+            from shopee_webhook.core.runtime_config import runtime_config
+            telegram_cfg = runtime_config.get_telegram_config()
+
+            # If runtime config has settings, use them
+            if telegram_cfg and telegram_cfg.get("bot_token"):
+                _notifier = TelegramNotifier(
+                    bot_token=telegram_cfg.get("bot_token"),
+                    chat_id=telegram_cfg.get("chat_id")
+                )
+                logger.info("Using Telegram config from runtime_config.json")
+            else:
+                # Fall back to environment variables
+                _notifier = TelegramNotifier()
+                logger.info("Using Telegram config from environment variables")
+        except Exception as e:
+            # If runtime config fails, fall back to env vars
+            logger.warning(f"Could not load runtime config, using env vars: {e}")
+            _notifier = TelegramNotifier()
+
     return _notifier
 
 
@@ -399,7 +423,7 @@ def send_webhook_to_telegram(
     shop_id: int,
     event_data: Dict[str, Any],
     order_update_info: Optional[Dict[str, Any]] = None,
-) -> None:
+) -> bool:
     """
     Send webhook event to Telegram (convenience function).
 
@@ -408,11 +432,16 @@ def send_webhook_to_telegram(
         shop_id: Shop ID
         event_data: Event payload data
         order_update_info: Optional order update info for enhanced formatting
+
+    Returns:
+        True if notification sent successfully, False otherwise
     """
     notifier = get_notifier()
     if notifier.enabled:
         # Send asynchronously in background (non-blocking)
         try:
-            notifier.send_event(event_code, shop_id, event_data, order_update_info)
+            return notifier.send_event(event_code, shop_id, event_data, order_update_info)
         except Exception as e:
             logger.error(f"Failed to send Telegram notification: {e}")
+            return False
+    return False

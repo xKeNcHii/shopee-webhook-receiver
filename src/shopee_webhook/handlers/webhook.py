@@ -1,6 +1,7 @@
 """Webhook event handling."""
 
 import json
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from shopee_webhook.core.logger import setup_logger
@@ -30,19 +31,17 @@ async def handle_webhook_event(
 
     logger.info(f"Processing webhook: code={event_code}, shop_id={shop_id}")
 
-    # Log event
+    # Set error monitoring context for this webhook
     try:
-        from shopee_webhook.core.event_logger import log_webhook_event
-
-        log_webhook_event(
+        from shopee_webhook.core.monitoring import set_webhook_context
+        order_sn = event_data.get("ordersn")
+        set_webhook_context(
             event_code=event_code,
             shop_id=shop_id,
-            event_data=event_data,
-            authorization_header=authorization_header,
-            raw_body=json.dumps(event_payload),
+            order_sn=order_sn
         )
-    except Exception as e:
-        logger.error(f"Error logging webhook event: {e}")
+    except Exception:
+        pass  # Don't fail webhook processing if monitoring fails
 
     # Process order webhooks (Code 3 & 4)
     order_update_info = None
@@ -54,26 +53,83 @@ async def handle_webhook_event(
             logger.error(f"Error processing order webhook: {e}", exc_info=True)
             # Don't raise - webhook responses must still return 200 OK to Shopee
 
+    # Initialize processing status tracking for dashboard
+    telegram_result = {"success": False, "error": None, "timestamp": None}
+    forwarder_result = {"success": False, "error": None, "timestamp": None}
+
     # Send to Telegram (enhanced with order update info for better formatting)
     try:
-        send_webhook_to_telegram(
+        telegram_success = send_webhook_to_telegram(
             event_code=event_code,
             shop_id=shop_id,
             event_data=event_data,
             order_update_info=order_update_info,
         )
+        if telegram_success:
+            telegram_result = {
+                "success": True,
+                "error": None,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        else:
+            # Check if Telegram is configured
+            from shopee_webhook.integrations.telegram import get_notifier
+            notifier = get_notifier()
+            if not notifier.enabled:
+                error_msg = "Telegram not configured"
+            else:
+                error_msg = "Send failed (check Telegram logs)"
+
+            telegram_result = {
+                "success": False,
+                "error": error_msg,
+                "timestamp": datetime.utcnow().isoformat()
+            }
     except Exception as e:
         logger.error(f"Error sending webhook to Telegram: {e}")
+        telegram_result = {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
     # Forward to custom service (if configured)
     # Only forward the raw webhook event - processor can fetch order details if needed
     if forwarder:
         try:
-            await forwarder.forward_webhook(
+            forwarder_success = await forwarder.forward_webhook(
                 event_payload=event_payload,
             )
+            forwarder_result = {
+                "success": forwarder_success,
+                "error": None if forwarder_success else "Failed to forward",
+                "timestamp": datetime.utcnow().isoformat()
+            }
         except Exception as e:
             logger.error(f"Error forwarding webhook: {e}")
+            forwarder_result = {
+                "success": False,
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+    # Log processing status for dashboard monitoring
+    try:
+        from shopee_webhook.core.event_logger import log_webhook_event
+
+        log_webhook_event(
+            event_code=event_code,
+            shop_id=shop_id,
+            event_data=event_data,
+            authorization_header=authorization_header,
+            raw_body=json.dumps(event_payload),
+            processing_status={
+                "telegram": telegram_result,
+                "forwarder": forwarder_result
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error logging processing status: {e}")
 
     # Special handling for shipping documents (Code 15 & 25)
     if event_code in [15, 25]:

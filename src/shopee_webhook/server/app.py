@@ -34,6 +34,31 @@ def create_app() -> FastAPI:
         description="Receives Shopee webhooks, fetches order details, and forwards to custom service",
     )
 
+    # Initialize GlitchTip error monitoring (Sentry-compatible)
+    if settings.glitchtip_dsn:
+        try:
+            import sentry_sdk
+            from sentry_sdk.integrations.fastapi import FastApiIntegration
+            from sentry_sdk.integrations.logging import LoggingIntegration
+
+            sentry_sdk.init(
+                dsn=settings.glitchtip_dsn,
+                environment=settings.environment,
+                integrations=[
+                    FastApiIntegration(transaction_style="endpoint"),
+                    LoggingIntegration(
+                        level=None,  # Capture all log levels
+                        event_level=None  # Send logs as breadcrumbs, not events
+                    ),
+                ],
+                traces_sample_rate=0.1,  # 10% of transactions for performance monitoring
+                profiles_sample_rate=0.0,  # Disable profiling
+                send_default_pii=False,  # Don't send personally identifiable information
+            )
+            logger.info("GlitchTip error monitoring initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize GlitchTip: {e}")
+
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -42,11 +67,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
+    
     # Import and include routers
-    from shopee_webhook.server import routes
+    from shopee_webhook.server import routes, dashboard_routes
 
     app.include_router(routes.router)
+    app.include_router(dashboard_routes.router)
 
     # Graceful shutdown handler
     @app.on_event("shutdown")
