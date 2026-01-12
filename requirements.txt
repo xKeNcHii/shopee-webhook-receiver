@@ -11,3 +11,10 @@ httpx>=0.25.0
 
 # Error Monitoring
 sentry-sdk[fastapi]>=1.40.0
+
+# Google Sheets (for processor)
+gspread>=5.12.0
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+google-api-python-client>=2.100.0

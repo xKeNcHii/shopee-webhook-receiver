@@ -32,7 +32,7 @@ ENV PYTHONPATH=/app/src:$PYTHONPATH
 COPY src/ ./src/
 
 # Create config, logs, and data directories
-RUN mkdir -p config logs data
+RUN mkdir -p config logs
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
@@ -42,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 # Run application
-CMD ["python", "-m", "uvicorn", "shopee_webhook.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "shopee_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
