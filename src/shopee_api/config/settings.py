@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     # GlitchTip Error Monitoring
     glitchtip_dsn: Optional[str] = None
 
+    # Redis Queue Configuration
+    redis_enabled: bool = True
+    redis_host: str = "redis"
+    redis_port: int = 6379
+    redis_db: int = 0
+    redis_max_retries: int = 3
+    redis_num_workers: int = 3
+    redis_brpop_timeout: int = 30
+
     class Config:
         """Pydantic config."""
 
