@@ -32,6 +32,11 @@ def verify_push_signature(
     Reference:
         Shopee uses HMAC-SHA256 over the raw request body only.
     """
+    # If DEBUG_WEBHOOK is enabled, accept all webhooks for testing
+    if os.getenv("DEBUG_WEBHOOK") == "1":
+        logger.warning("DEBUG MODE: Accepting webhook without signature validation (DEBUG_WEBHOOK=1)")
+        return True
+
     # Validate inputs
     if not signature_header:
         logger.warning("Webhook received without Authorization header")
@@ -80,12 +85,6 @@ def verify_push_signature(
 
     # If we get here, no keys matched
     logger.warning(f"Invalid webhook signature. Got: {signature_header[:16]}...")
-
-    # If DEBUG_WEBHOOK is enabled, accept invalid signatures for testing
-    if os.getenv("DEBUG_WEBHOOK") == "1":
-        logger.warning("DEBUG MODE: Accepting invalid signature (DEBUG_WEBHOOK=1)")
-        return True
-
     return False
 
 

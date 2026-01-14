@@ -329,12 +329,17 @@
                     <div class="stat-value success-text" id="forwarder-success">-</div>
                     <div class="stat-label">Forwarder Success</div>
                 </div>
+                <div class="stat-box" style="cursor: pointer;" onclick="switchTab('dlq')" title="Click to view DLQ details">
+                    <div class="stat-value" id="dlq-count" style="color: var(--warning);">-</div>
+                    <div class="stat-label">Failed Orders (DLQ)</div>
+                </div>
             </div>
 
             <!-- Tabs -->
             <div class="card">
                 <div class="tabs">
                     <button class="tab active" onclick="switchTab('webhooks')">Webhooks</button>
+                    <button class="tab" onclick="switchTab('dlq')">Dead Letter Queue</button>
                     <button class="tab" onclick="switchTab('config')">Configuration</button>
                     <button class="tab" onclick="switchTab('errors')">Errors</button>
                 </div>
@@ -370,6 +375,63 @@
                         <button onclick="previousPage()" id="btn-prev" class="secondary" style="margin-right: 10px;">← Previous</button>
                         <span id="page-info" style="margin: 0 15px; color: var(--gray-600);"></span>
                         <button onclick="nextPage()" id="btn-next" class="secondary" style="margin-left: 10px;">Next →</button>
+                    </div>
+                </div>
+
+                <!-- Dead Letter Queue Tab -->
+                <div id="tab-dlq" class="tab-content">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <div>
+                            <h2 style="margin: 0;">Dead Letter Queue</h2>
+                            <p style="color: var(--gray-600); font-size: 14px; margin-top: 5px;">
+                                Messages that failed processing after 3 retries
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="resetStats()" class="secondary" id="btn-reset-stats">
+                                ⟲ Reset Stats
+                            </button>
+                            <button onclick="retryDLQ()" class="secondary" id="btn-retry-dlq">
+                                ↻ Retry All
+                            </button>
+                            <button onclick="clearDLQ()" style="background: var(--danger);" id="btn-clear-dlq">
+                                ✕ Clear All
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="stats" style="margin-bottom: 20px;">
+                        <div class="stat-box">
+                            <div class="stat-value" id="dlq-total-enqueued">-</div>
+                            <div class="stat-label">Total Enqueued</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value success-text" id="dlq-total-processed">-</div>
+                            <div class="stat-label">Successfully Processed</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value danger-text" id="dlq-total-failed">-</div>
+                            <div class="stat-label">Failed (in DLQ)</div>
+                        </div>
+                    </div>
+
+                    <div id="dlq-loading" class="loading">Loading DLQ messages...</div>
+                    <table id="dlq-table" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>Order SN</th>
+                                <th>Status</th>
+                                <th>Event Code</th>
+                                <th>Enqueued At</th>
+                                <th>Failed At</th>
+                                <th>Worker ID</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dlq-body"></tbody>
+                    </table>
+                    <div id="dlq-empty" class="empty" style="display: none;">
+                        <p style="font-size: 48px; margin-bottom: 10px;">✓</p>
+                        <p>No messages in DLQ - all orders processing successfully!</p>
                     </div>
                 </div>
 
@@ -548,7 +610,7 @@
 
         async function loadData() {
             try {
-                await Promise.all([fetchStats(), fetchWebhooks(), fetchConfig()]);
+                await Promise.all([fetchStats(), fetchWebhooks(), fetchConfig(), fetchDLQStats()]);
             } catch (err) {
                 console.error('Error loading data:', err);
             }
@@ -600,7 +662,10 @@
                 const date = datetime.toLocaleDateString('en-SG');
                 const time = datetime.toLocaleTimeString('en-SG', { hour12: false });
                 const telegramStatus = e.processing_status?.telegram?.success;
-                const forwarderStatus = e.processing_status?.forwarder?.success;
+                
+                const forwarder = e.processing_status?.forwarder || {};
+                const forwarderStatus = forwarder.success;
+                const forwarderAttempts = forwarder.attempts || 1;
 
                 return `
                     <tr>
@@ -610,7 +675,7 @@
                         <td>${e.shop_id || '-'}</td>
                         <td>${e.event_data?.ordersn || '-'}</td>
                         <td>${renderStatus(telegramStatus)}</td>
-                        <td>${renderStatus(forwarderStatus)}</td>
+                        <td>${renderStatus(forwarderStatus, forwarderAttempts)}</td>
                     </tr>
                 `;
             }).join('');
@@ -670,10 +735,16 @@
             fetchWebhooks();
         }
 
-        function renderStatus(status) {
+        function renderStatus(status, attempts = 1) {
             if (status === true) {
+                if (attempts > 1) {
+                    return `<span class="badge badge-success">✓ Success (${attempts} tries)</span>`;
+                }
                 return '<span class="badge badge-success">✓ Success</span>';
             } else if (status === false) {
+                if (attempts > 1) {
+                    return `<span class="badge badge-danger">✗ Failed (${attempts} tries)</span>`;
+                }
                 return '<span class="badge badge-danger">✗ Failed</span>';
             } else {
                 return '<span class="badge badge-gray">-</span>';
@@ -815,6 +886,166 @@
                 content.classList.remove('active');
             });
             document.getElementById(`tab-${tabName}`).classList.add('active');
+
+            // Load DLQ messages when tab is opened
+            if (tabName === 'dlq') {
+                fetchDLQMessages();
+            }
+        }
+
+        async function fetchDLQStats() {
+            try {
+                const data = await fetchAPI('/dlq/stats');
+
+                if (data.enabled) {
+                    document.getElementById('dlq-count').textContent = data.dlq_count;
+                    document.getElementById('dlq-total-enqueued').textContent = data.total_enqueued || 0;
+                    document.getElementById('dlq-total-processed').textContent = data.total_processed || 0;
+                    document.getElementById('dlq-total-failed').textContent = data.dlq_count || 0;
+                } else {
+                    document.getElementById('dlq-count').textContent = 'N/A';
+                    document.getElementById('dlq-total-enqueued').textContent = 'N/A';
+                    document.getElementById('dlq-total-processed').textContent = 'N/A';
+                    document.getElementById('dlq-total-failed').textContent = 'N/A';
+                }
+            } catch (err) {
+                console.error('Error fetching DLQ stats:', err);
+                document.getElementById('dlq-count').textContent = '?';
+            }
+        }
+
+        async function fetchDLQMessages() {
+            const loading = document.getElementById('dlq-loading');
+            const table = document.getElementById('dlq-table');
+            const empty = document.getElementById('dlq-empty');
+            const tbody = document.getElementById('dlq-body');
+
+            try {
+                loading.style.display = 'block';
+                table.style.display = 'none';
+                empty.style.display = 'none';
+
+                const data = await fetchAPI('/dlq/messages?limit=100');
+
+                loading.style.display = 'none';
+
+                if (!data.enabled) {
+                    empty.innerHTML = '<p>Redis queue is disabled</p>';
+                    empty.style.display = 'block';
+                    return;
+                }
+
+                if (data.total === 0) {
+                    empty.style.display = 'block';
+                    return;
+                }
+
+                table.style.display = 'table';
+
+                tbody.innerHTML = data.messages.map(msg => {
+                    const enqueuedDate = new Date(msg.enqueued_at * 1000);
+                    const failedDate = new Date(msg.moved_to_dlq_at * 1000);
+
+                    return `
+                        <tr>
+                            <td style="font-family: monospace;">${msg.order_sn}</td>
+                            <td><span class="badge badge-gray">${msg.status}</span></td>
+                            <td>${msg.event_code}</td>
+                            <td style="font-size: 12px;">${enqueuedDate.toLocaleString('en-SG')}</td>
+                            <td style="font-size: 12px;">${failedDate.toLocaleString('en-SG')}</td>
+                            <td>Worker-${msg.worker_id}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+            } catch (err) {
+                console.error('Error fetching DLQ messages:', err);
+                loading.style.display = 'none';
+                empty.innerHTML = `<p style="color: var(--danger);">Error: ${err.message}</p>`;
+                empty.style.display = 'block';
+            }
+        }
+
+        async function resetStats() {
+            if (!confirm('Reset queue statistics to zero?\n\nThis only resets counters (Total Enqueued, Processed, Failed).\nDLQ messages are NOT affected.')) {
+                return;
+            }
+
+            const btn = document.getElementById('btn-reset-stats');
+            btn.disabled = true;
+            btn.textContent = 'Resetting...';
+
+            try {
+                const result = await fetchAPI('/dlq/reset-stats', { method: 'POST' });
+
+                if (result.success) {
+                    alert('✓ Stats reset to zero');
+                    await fetchDLQStats();
+                } else {
+                    alert(`✗ ${result.message}`);
+                }
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '⟲ Reset Stats';
+            }
+        }
+
+        async function retryDLQ() {
+            if (!confirm('Retry all messages from Dead Letter Queue?\n\nThese orders will be re-processed by workers.')) {
+                return;
+            }
+
+            const btn = document.getElementById('btn-retry-dlq');
+            btn.disabled = true;
+            btn.textContent = 'Retrying...';
+
+            try {
+                const result = await fetchAPI('/dlq/retry', { method: 'POST' });
+
+                if (result.success) {
+                    alert(`✓ Successfully retried ${result.retried_count} messages!`);
+                    // Refresh data
+                    await fetchDLQStats();
+                    await fetchDLQMessages();
+                } else {
+                    alert(`✗ ${result.message}`);
+                }
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '↻ Retry All';
+            }
+        }
+
+        async function clearDLQ() {
+            if (!confirm('⚠️ WARNING: Permanently delete all messages from Dead Letter Queue?\n\nThis action CANNOT be undone!\n\nType "yes" to confirm.')) {
+                return;
+            }
+
+            const btn = document.getElementById('btn-clear-dlq');
+            btn.disabled = true;
+            btn.textContent = 'Clearing...';
+
+            try {
+                const result = await fetchAPI('/dlq/clear', { method: 'DELETE' });
+
+                if (result.success) {
+                    alert(`✓ Cleared ${result.cleared_count} messages from DLQ`);
+                    // Refresh data
+                    await fetchDLQStats();
+                    await fetchDLQMessages();
+                } else {
+                    alert(`✗ ${result.message}`);
+                }
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '✕ Clear All';
+            }
         }
     </script>
 </body>

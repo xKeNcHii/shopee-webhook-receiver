@@ -411,3 +411,359 @@ async def update_glitchtip_config(
             "success": False,
             "message": f"Failed to update GlitchTip config: {str(e)}"
         }
+
+
+@router.get("/dlq/stats")
+async def get_dlq_stats(_: bool = Depends(verify_api_key)) -> Dict[str, Any]:
+    """
+    Get Dead Letter Queue statistics.
+
+    Returns:
+        - DLQ message count
+        - Total enqueued, processed, failed counts
+        - Sample of failed orders
+    """
+    try:
+        from shopee_api.config.settings import settings
+        import redis.asyncio as redis
+        import json
+
+        if not settings.redis_enabled:
+            return {
+                "enabled": False,
+                "dlq_count": 0,
+                "message": "Redis queue is disabled"
+            }
+
+        # Connect to Redis
+        r = await redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            decode_responses=True
+        )
+
+        # Get queue statistics
+        dlq_count = await r.llen("shopee:webhooks:dead_letter")
+        stats_raw = await r.hgetall("shopee:webhooks:stats")
+
+        # Get sample messages from DLQ (first 5)
+        sample_messages = []
+        dlq_messages = await r.lrange("shopee:webhooks:dead_letter", 0, 4)
+
+        for msg_json in dlq_messages:
+            try:
+                msg = json.loads(msg_json)
+                payload = msg.get("payload", {})
+                data = payload.get("data", {})
+                metadata = msg.get("metadata", {})
+
+                sample_messages.append({
+                    "order_sn": data.get("ordersn", "unknown"),
+                    "status": data.get("status", "unknown"),
+                    "event_code": payload.get("code"),
+                    "enqueued_at": metadata.get("enqueued_at"),
+                    "moved_to_dlq_at": metadata.get("moved_to_dlq_at"),
+                    "worker_id": metadata.get("worker_id")
+                })
+            except Exception:
+                continue
+
+        await r.aclose()
+
+        return {
+            "enabled": True,
+            "dlq_count": dlq_count,
+            "total_enqueued": int(stats_raw.get("total_enqueued", 0)),
+            "total_processed": int(stats_raw.get("total_processed", 0)),
+            "total_failed": int(stats_raw.get("total_failed", 0)),
+            "sample_messages": sample_messages
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting DLQ stats: {e}", exc_info=True)
+        return {
+            "enabled": False,
+            "dlq_count": 0,
+            "error": str(e)
+        }
+
+
+@router.get("/dlq/messages")
+async def get_dlq_messages(
+    limit: int = Query(default=100, ge=1, le=500, description="Max messages to return"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    _: bool = Depends(verify_api_key)
+) -> Dict[str, Any]:
+    """
+    Get messages from Dead Letter Queue with pagination.
+
+    Returns detailed list of failed orders for inspection.
+    """
+    try:
+        from shopee_api.config.settings import settings
+        import redis.asyncio as redis
+        import json
+
+        if not settings.redis_enabled:
+            return {
+                "enabled": False,
+                "total": 0,
+                "messages": []
+            }
+
+        # Connect to Redis
+        r = await redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            decode_responses=True
+        )
+
+        # Get total count
+        total = await r.llen("shopee:webhooks:dead_letter")
+
+        # Get paginated messages
+        messages = []
+        dlq_messages = await r.lrange("shopee:webhooks:dead_letter", offset, offset + limit - 1)
+
+        for msg_json in dlq_messages:
+            try:
+                msg = json.loads(msg_json)
+                payload = msg.get("payload", {})
+                data = payload.get("data", {})
+                metadata = msg.get("metadata", {})
+
+                messages.append({
+                    "order_sn": data.get("ordersn", "unknown"),
+                    "status": data.get("status", "unknown"),
+                    "event_code": payload.get("code"),
+                    "shop_id": payload.get("shop_id"),
+                    "timestamp": payload.get("timestamp"),
+                    "enqueued_at": metadata.get("enqueued_at"),
+                    "moved_to_dlq_at": metadata.get("moved_to_dlq_at"),
+                    "retry_count": metadata.get("retry_count", 0),
+                    "max_retries": metadata.get("max_retries", 3),
+                    "worker_id": metadata.get("worker_id"),
+                    "full_message": msg  # Include full message for retry
+                })
+            except Exception as e:
+                logger.warning(f"Error parsing DLQ message: {e}")
+                continue
+
+        await r.aclose()
+
+        return {
+            "enabled": True,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "messages": messages
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting DLQ messages: {e}", exc_info=True)
+        return {
+            "enabled": False,
+            "total": 0,
+            "messages": [],
+            "error": str(e)
+        }
+
+
+@router.post("/dlq/retry")
+async def retry_dlq_messages(
+    _: bool = Depends(verify_api_key)
+) -> Dict[str, Any]:
+    """
+    Retry all messages from Dead Letter Queue.
+
+    Moves all messages from DLQ back to main queue with reset metadata.
+    """
+    try:
+        from shopee_api.config.settings import settings
+        import redis.asyncio as redis
+        import json
+        import time
+
+        if not settings.redis_enabled:
+            return {
+                "success": False,
+                "message": "Redis queue is disabled"
+            }
+
+        # Connect to Redis
+        r = await redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            decode_responses=True
+        )
+
+        dlq_key = "shopee:webhooks:dead_letter"
+        main_queue_key = "shopee:webhooks:main"
+
+        # Get DLQ length
+        dlq_length = await r.llen(dlq_key)
+
+        if dlq_length == 0:
+            await r.aclose()
+            return {
+                "success": True,
+                "message": "No messages to retry",
+                "retried_count": 0
+            }
+
+        # Move messages from DLQ to main queue
+        retried = 0
+        failed = 0
+
+        while True:
+            # Pop from DLQ (right side, oldest first)
+            msg_json = await r.rpop(dlq_key)
+            if not msg_json:
+                break
+
+            try:
+                msg = json.loads(msg_json)
+
+                # Reset metadata for retry
+                msg["metadata"]["retry_count"] = 0
+                msg["metadata"]["enqueued_at"] = time.time()
+                msg["metadata"].pop("moved_to_dlq_at", None)
+                msg["metadata"].pop("worker_id", None)
+
+                # Re-enqueue to main queue (left side, same as original enqueue)
+                new_msg_json = json.dumps(msg)
+                await r.lpush(main_queue_key, new_msg_json)
+
+                retried += 1
+
+            except Exception as e:
+                logger.error(f"Error retrying DLQ message: {e}")
+                failed += 1
+
+        await r.aclose()
+
+        logger.info(f"DLQ retry completed: {retried} retried, {failed} failed")
+
+        return {
+            "success": True,
+            "message": f"Successfully retried {retried} messages from DLQ",
+            "retried_count": retried,
+            "failed_count": failed
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrying DLQ: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"Error retrying DLQ: {str(e)}",
+            "retried_count": 0
+        }
+
+
+@router.post("/dlq/reset-stats")
+async def reset_dlq_stats(
+    _: bool = Depends(verify_api_key)
+) -> Dict[str, Any]:
+    """
+    Reset queue statistics (total_enqueued, total_processed, total_failed).
+
+    Does NOT affect DLQ messages - only resets the counters.
+    """
+    try:
+        from shopee_api.config.settings import settings
+        import redis.asyncio as redis
+
+        if not settings.redis_enabled:
+            return {
+                "success": False,
+                "message": "Redis queue is disabled"
+            }
+
+        r = await redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            decode_responses=True
+        )
+
+        # Delete the stats hash
+        await r.delete("shopee:webhooks:stats")
+        await r.aclose()
+
+        logger.info("Queue stats reset")
+
+        return {
+            "success": True,
+            "message": "Queue statistics reset to zero"
+        }
+
+    except Exception as e:
+        logger.error(f"Error resetting stats: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"Error resetting stats: {str(e)}"
+        }
+
+
+@router.delete("/dlq/clear")
+async def clear_dlq(
+    _: bool = Depends(verify_api_key)
+) -> Dict[str, Any]:
+    """
+    Clear all messages from Dead Letter Queue without retrying.
+
+    WARNING: This permanently deletes all failed messages!
+    """
+    try:
+        from shopee_api.config.settings import settings
+        import redis.asyncio as redis
+
+        if not settings.redis_enabled:
+            return {
+                "success": False,
+                "message": "Redis queue is disabled"
+            }
+
+        # Connect to Redis
+        r = await redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            decode_responses=True
+        )
+
+        dlq_key = "shopee:webhooks:dead_letter"
+
+        # Get count before deleting
+        dlq_length = await r.llen(dlq_key)
+
+        if dlq_length == 0:
+            await r.aclose()
+            return {
+                "success": True,
+                "message": "DLQ is already empty",
+                "cleared_count": 0
+            }
+
+        # Delete the entire DLQ
+        await r.delete(dlq_key)
+        await r.aclose()
+
+        logger.warning(f"DLQ cleared: {dlq_length} messages permanently deleted")
+
+        return {
+            "success": True,
+            "message": f"Successfully cleared {dlq_length} messages from DLQ",
+            "cleared_count": dlq_length
+        }
+
+    except Exception as e:
+        logger.error(f"Error clearing DLQ: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"Error clearing DLQ: {str(e)}",
+            "cleared_count": 0
+        }

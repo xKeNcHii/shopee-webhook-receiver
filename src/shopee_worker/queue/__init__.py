@@ -33,7 +33,7 @@ def create_redis_pool() -> redis.ConnectionPool:
         db=db,
         decode_responses=True,
         max_connections=10,  # Shared across all workers in process
-        socket_timeout=settings.redis_brpop_timeout,
+        socket_timeout=None,  # Let BRPOP control its own timeout
         socket_connect_timeout=settings.redis_brpop_timeout,
         retry_on_timeout=True
     )

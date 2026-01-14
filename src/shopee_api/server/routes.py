@@ -154,6 +154,38 @@ async def telegram_update(request: Request) -> dict:
     return {"ok": True}
 
 
+@router.get("/queue/stats")
+async def queue_stats() -> dict:
+    """Get Redis queue statistics for monitoring.
+
+    Returns queue depth, processing stats, and circuit breaker state.
+    """
+    try:
+        from shopee_api.config.settings import settings
+        from shopee_api.integrations.redis_queue import get_redis_queue
+
+        if not settings.redis_enabled:
+            return {
+                "redis_enabled": False,
+                "message": "Redis queue is disabled"
+            }
+
+        queue = get_redis_queue()
+        stats = await queue.get_stats()
+
+        return {
+            "redis_enabled": True,
+            **stats
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting queue stats: {e}", exc_info=True)
+        return {
+            "error": str(e),
+            "redis_enabled": settings.redis_enabled if 'settings' in locals() else False
+        }
+
+
 async def _process_webhook_background(
     event_payload: dict,
     authorization: Optional[str],
@@ -164,31 +196,20 @@ async def _process_webhook_background(
     This runs asynchronously after Shopee receives the response.
     """
     try:
-        # Create OrderService for fetching order details
-        order_service = None
-        try:
-            api_client = ShopeeAPIClient(
-                partner_id=settings.partner_id,
-                partner_key=settings.partner_key,
-                shop_id=settings.shop_id,
-                access_token=settings.access_token,
-                refresh_token=settings.refresh_token,
-                host_api=settings.host_api,
-            )
-            order_service = OrderService(api_client)
-        except Exception as e:
-            logger.error(f"Failed to create OrderService: {e}")
+        # Forwarder: NO order processing - just publish to Redis/HTTP
+        # Workers will fetch order details and process them asynchronously
 
         # Create forwarder if URL is configured
         forwarder = None
         if hasattr(settings, 'forward_webhook_url') and settings.forward_webhook_url:
             forwarder = WebhookForwarder(settings.forward_webhook_url)
 
-        # Process webhook (fetch order, send telegram, forward, log)
+        # Process webhook (send telegram, forward to queue/http, log)
+        # NOTE: order_service=None means no order fetching in forwarder
         await handle_webhook_event(
             event_payload,
             authorization,
-            order_service=order_service,
+            order_service=None,  # Workers handle order processing
             forwarder=forwarder,
         )
 

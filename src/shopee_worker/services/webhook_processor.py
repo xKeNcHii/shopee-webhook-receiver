@@ -1,5 +1,6 @@
 """Webhook processor business logic."""
 
+import time
 from typing import Dict, Any
 from shopee_api.services.order_service import OrderService
 from shopee_worker.repositories.base import OrderRepository
@@ -61,6 +62,7 @@ class WebhookProcessor:
             True if processed successfully
         """
         try:
+            start_time = time.time()
             event_code = event_payload.get("code")
             shop_id = event_payload.get("shop_id")
             event_data = event_payload.get("data", {})
@@ -95,7 +97,11 @@ class WebhookProcessor:
 
             # Fetch full order details from Shopee API
             logger.info(f"Fetching order details for {order_sn}")
+            
+            t0 = time.time()
             order_info = await self.order_service.fetch_order_details(order_sn)
+            t1 = time.time()
+            logger.info(f"[TIMER] Shopee API Fetch: {t1 - t0:.2f}s")
 
             if not order_info:
                 logger.error(f"Failed to fetch order {order_sn}")
@@ -118,13 +124,20 @@ class WebhookProcessor:
 
             # Upsert items to storage
             logger.info(f"Upserting {len(items)} items for order {order_sn}")
+            
+            t2 = time.time()
             success = await self.repository.upsert_order_items(items)
+            t3 = time.time()
+            logger.info(f"[TIMER] Google Sheets Upsert: {t3 - t2:.2f}s")
 
             if success:
                 logger.info(f"Successfully processed order {order_sn}")
             else:
                 logger.error(f"Failed to upsert order {order_sn}")
 
+            total_duration = time.time() - start_time
+            logger.info(f"[TIMER] Total Processing Time: {total_duration:.2f}s")
+            
             return success
 
         except Exception as e:

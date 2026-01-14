@@ -127,10 +127,16 @@ class ShopeeAPIClient:
         stored_tokens = load_tokens()
 
         if stored_tokens:
+            # Always load the latest token from storage
+            self.access_token = stored_tokens.get("access_token", self.access_token)
+            self.refresh_token = stored_tokens.get("refresh_token", self.refresh_token)
+
             expires_at = stored_tokens.get("access_token_expires_at", 0)
             if is_token_expired(expires_at):
                 logger.info("Token expired, refreshing...")
                 return await self.refresh_access_token()
+
+            logger.debug("Using valid token from storage")
 
         return True
 

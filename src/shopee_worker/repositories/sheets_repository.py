@@ -515,7 +515,7 @@ class GoogleSheetsRepository(OrderRepository):
                 from datetime import datetime, timezone, timedelta
                 singapore_tz = timezone(timedelta(hours=TIMEZONE_OFFSET_HOURS))
                 now = datetime.now(singapore_tz)
-                timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+                timestamp_str = now.strftime("%Y-%m-%d %H:%M")
 
                 if existing_row_data:
                     # Track changes for Shopee Status and Total Sale
@@ -533,8 +533,8 @@ class GoogleSheetsRepository(OrderRepository):
                     )
 
                     if old_status != new_status and new_status:
-                        changes.append(f"Shopee Status: {old_status} → {new_status}")
-                        logger.info(f"STATUS CHANGE DETECTED: {old_status} → {new_status}")
+                        changes.append(f"Status: {old_status}->{new_status}")
+                        logger.info(f"STATUS CHANGE DETECTED: {old_status} -> {new_status}")
 
                     # Check Total Sale change
                     old_sale = existing_row_data.get(COLUMN_TOTAL_SALE, "")
@@ -550,20 +550,27 @@ class GoogleSheetsRepository(OrderRepository):
                         old_sale_val = float(old_sale) if old_sale else 0
                         new_sale_val = float(new_sale) if new_sale else 0
                         if abs(old_sale_val - new_sale_val) > 0.01:  # Changed
-                            changes.append(f"Total Sale: {old_sale} → {new_sale}")
+                            changes.append(f"Sale: {old_sale}->{new_sale}")
                     except (ValueError, TypeError):
                         # If conversion fails, do string comparison
                         if old_sale != new_sale:
-                            changes.append(f"Total Sale: {old_sale} → {new_sale}")
+                            changes.append(f"Sale: {old_sale}->{new_sale}")
 
-                    # Set notes with timestamp
+                    # Set notes with timestamp - Append to existing notes
+                    existing_notes = existing_row_data.get(COLUMN_NOTES, "")
+                    
                     if changes:
-                        row_data[COLUMN_NOTES] = f"Updated: {', '.join(changes)} ({timestamp_str})"
+                        new_note = f"[{timestamp_str}] {', '.join(changes)}"
+                        if existing_notes:
+                            row_data[COLUMN_NOTES] = f"{existing_notes}\n{new_note}"
+                        else:
+                            row_data[COLUMN_NOTES] = new_note
                     else:
-                        row_data[COLUMN_NOTES] = f"No changes ({timestamp_str})"
+                        # Keep existing notes if no changes
+                        row_data[COLUMN_NOTES] = existing_notes
                 else:
                     # New order with timestamp
-                    row_data[COLUMN_NOTES] = f"New order ({timestamp_str})"
+                    row_data[COLUMN_NOTES] = f"[{timestamp_str}] New order"
 
                 # Convert row_data dict to list of values based on current column order
                 # This allows columns to be reordered in the sheet

@@ -1,5 +1,6 @@
 """Processor API routes."""
 
+import os
 from fastapi import APIRouter, Request, Response
 from shopee_api.core.logger import setup_logger
 from shopee_worker.services.webhook_processor import WebhookProcessor
@@ -105,6 +106,78 @@ async def health_check() -> dict:
     }
 
 
+@router.get("/workers/stats")
+async def worker_stats(request: Request) -> dict:
+    """Get Redis worker statistics for monitoring.
+
+    Returns statistics for all active Redis consumer workers:
+    - Worker ID and status
+    - Messages processed/failed counts
+    - Current message being processed
+    - Average processing time
+
+    Returns:
+        {
+            "redis_enabled": bool,
+            "total_workers": int,
+            "workers": [
+                {
+                    "worker_id": int,
+                    "is_running": bool,
+                    "current_message": str | None,
+                    "messages_processed": int,
+                    "messages_failed": int,
+                    "avg_processing_time": float,
+                    "last_message_at": float | None
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        redis_enabled = os.getenv("REDIS_ENABLED", "true").lower() == "true"
+
+        if not redis_enabled:
+            return {
+                "redis_enabled": False,
+                "message": "Redis workers not enabled"
+            }
+
+        # Get worker tasks from app state
+        if not hasattr(request.app.state, "worker_tasks"):
+            return {
+                "redis_enabled": True,
+                "error": "Worker tasks not initialized"
+            }
+
+        worker_tasks = request.app.state.worker_tasks
+
+        if not worker_tasks:
+            return {
+                "redis_enabled": True,
+                "error": "No workers running"
+            }
+
+        # Collect stats from all workers
+        workers_info = []
+        for consumer, task in worker_tasks:
+            stats = consumer.get_stats()
+            workers_info.append(stats)
+
+        return {
+            "redis_enabled": True,
+            "total_workers": len(workers_info),
+            "workers": workers_info
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting worker stats: {e}", exc_info=True)
+        return {
+            "error": str(e),
+            "redis_enabled": redis_enabled if 'redis_enabled' in locals() else False
+        }
+
+
 @router.get("/")
 async def root() -> dict:
     """Root endpoint."""
@@ -113,6 +186,7 @@ async def root() -> dict:
         "description": "Processes Shopee webhooks and stores in Google Sheets",
         "endpoints": {
             "health": "/health",
-            "webhook": "/webhook/process"
+            "webhook": "/webhook/process",
+            "workers_stats": "/workers/stats"
         }
     }

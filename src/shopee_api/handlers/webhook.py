@@ -94,16 +94,36 @@ async def handle_webhook_event(
             "timestamp": datetime.utcnow().isoformat()
         }
 
+    # Initialize Redis queue for forwarder (if enabled)
+    # This is done here instead of at module level to support runtime config changes
+    if forwarder:
+        try:
+            from shopee_api.config.settings import settings
+            if settings.redis_enabled and not forwarder.redis_queue:
+                from shopee_api.integrations.redis_queue import get_redis_queue
+                forwarder.redis_queue = get_redis_queue()
+                logger.debug("Redis queue attached to forwarder")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Redis queue for forwarder: {e}")
+            # Continue without Redis - forwarder will use HTTP fallback
+
     # Forward to custom service (if configured)
     # Only forward the raw webhook event - processor can fetch order details if needed
     if forwarder:
         try:
-            forwarder_success = await forwarder.forward_webhook(
+            forward_result = await forwarder.forward_webhook(
                 event_payload=event_payload,
             )
+            
+            # Unpack result dict
+            success = forward_result.get("success", False)
+            attempts = forward_result.get("attempts", 0)
+            last_error = forward_result.get("last_error")
+
             forwarder_result = {
-                "success": forwarder_success,
-                "error": None if forwarder_success else "Failed to forward",
+                "success": success,
+                "error": last_error if not success else None,
+                "attempts": attempts,
                 "timestamp": datetime.utcnow().isoformat()
             }
         except Exception as e:
@@ -111,6 +131,7 @@ async def handle_webhook_event(
             forwarder_result = {
                 "success": False,
                 "error": str(e),
+                "attempts": 0,
                 "timestamp": datetime.utcnow().isoformat()
             }
 

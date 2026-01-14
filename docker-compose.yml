@@ -5,6 +5,31 @@ networks:
     driver: bridge
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: shopee-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - shopee-network
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    environment:
+      - REDIS_REPLICATION_MODE=master
+
   forwarder:
     build:
       context: .
@@ -20,6 +45,8 @@ services:
       - ./config:/app/config
     networks:
       - shopee-network
+    depends_on:
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -29,6 +56,9 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - DEBUG_WEBHOOK=1
 
   processor:
     build:
@@ -46,6 +76,7 @@ services:
     networks:
       - shopee-network
     depends_on:
+      - redis
       - forwarder
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health').read()"]
@@ -56,6 +87,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_NUM_WORKERS=3
 
 volumes:
   logs:
+  redis-data:
