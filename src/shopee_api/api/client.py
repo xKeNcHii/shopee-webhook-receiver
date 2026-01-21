@@ -9,7 +9,7 @@ import httpx
 
 from shopee_api.core.logger import setup_logger
 from shopee_api.core.token_manager import load_tokens, save_tokens, is_token_expired
-from .endpoints import GET_ORDER_DETAIL
+from .endpoints import GET_ORDER_DETAIL, GET_ORDER_LIST
 
 logger = setup_logger(__name__)
 
@@ -267,6 +267,68 @@ class ShopeeAPIClient:
         }
 
         return await self._make_request(path, params)
+
+    async def get_order_list(
+        self,
+        time_from: int,
+        time_to: int,
+        time_range_field: str = "update_time",
+        page_size: int = 100,
+    ) -> List[dict]:
+        """
+        Fetch list of orders within a time range using cursor-based pagination.
+
+        Args:
+            time_from: Start timestamp (Unix epoch)
+            time_to: End timestamp (Unix epoch)
+            time_range_field: Field to filter by ("update_time" or "create_time")
+            page_size: Number of orders per page (max 100)
+
+        Returns:
+            List of order summaries (order_sn, status, update_time, etc.)
+        """
+        all_orders = []
+        cursor = ""
+        page = 1
+
+        logger.info(f"Fetching orders from {time_from} to {time_to} by {time_range_field}")
+
+        while True:
+            params = {
+                "time_range_field": time_range_field,
+                "time_from": time_from,
+                "time_to": time_to,
+                "page_size": min(page_size, 100),
+            }
+
+            if cursor:
+                params["cursor"] = cursor
+
+            try:
+                data = await self._make_request(GET_ORDER_LIST, params)
+                response = data.get("response", {})
+
+                order_list = response.get("order_list", [])
+                all_orders.extend(order_list)
+
+                logger.info(f"Fetched page {page}: {len(order_list)} orders (total: {len(all_orders)})")
+
+                # Check if there are more pages
+                more = response.get("more", False)
+                next_cursor = response.get("next_cursor", "")
+
+                if not more or not next_cursor:
+                    break
+
+                cursor = next_cursor
+                page += 1
+
+            except Exception as e:
+                logger.error(f"Error fetching order list page {page}: {e}")
+                raise
+
+        logger.info(f"Finished fetching orders: {len(all_orders)} total")
+        return all_orders
 
     async def close(self) -> None:
         """Close HTTP client connection."""

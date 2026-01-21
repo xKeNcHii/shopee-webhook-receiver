@@ -340,6 +340,7 @@
                 <div class="tabs">
                     <button class="tab active" onclick="switchTab('webhooks')">Webhooks</button>
                     <button class="tab" onclick="switchTab('dlq')">Dead Letter Queue</button>
+                    <button class="tab" onclick="switchTab('reconciliation')">Reconciliation</button>
                     <button class="tab" onclick="switchTab('config')">Configuration</button>
                     <button class="tab" onclick="switchTab('errors')">Errors</button>
                 </div>
@@ -432,6 +433,73 @@
                     <div id="dlq-empty" class="empty" style="display: none;">
                         <p style="font-size: 48px; margin-bottom: 10px;">✓</p>
                         <p>No messages in DLQ - all orders processing successfully!</p>
+                    </div>
+                </div>
+
+                <!-- Reconciliation Tab -->
+                <div id="tab-reconciliation" class="tab-content">
+                    <!-- Status Cards -->
+                    <div class="stats" style="margin-bottom: 20px;">
+                        <div class="stat-box">
+                            <div class="stat-value" id="last-sync-time" style="font-size: 18px;">-</div>
+                            <div class="stat-label">Last Sync</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value" id="next-sync-time" style="font-size: 18px;">-</div>
+                            <div class="stat-label">Next Scheduled</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value" id="last-full-sync-time" style="font-size: 18px;">-</div>
+                            <div class="stat-label">Last Full Sync</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-value" id="sync-status-indicator" style="color: var(--success);">Idle</div>
+                            <div class="stat-label">Status</div>
+                        </div>
+                    </div>
+
+                    <!-- Manual Sync Section -->
+                    <div style="background: var(--gray-100); border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                        <h2 style="margin: 0 0 10px 0;">Manual Sync</h2>
+                        <p style="color: var(--gray-600); margin-bottom: 15px; font-size: 14px;">
+                            Sync orders for a specific date range. Use this to catch up on missed orders or verify data.
+                        </p>
+                        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                            <div class="form-group" style="margin: 0;">
+                                <label>Start Date</label>
+                                <input type="date" id="sync-start-date">
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label>End Date</label>
+                                <input type="date" id="sync-end-date">
+                            </div>
+                            <button onclick="triggerManualSync()" id="btn-sync-now">
+                                Sync Now
+                            </button>
+                        </div>
+                        <div id="sync-message" style="margin-top: 15px; display: none;"></div>
+                    </div>
+
+                    <!-- Sync History Table -->
+                    <h2>Sync History</h2>
+                    <div id="sync-history-loading" class="loading">Loading sync history...</div>
+                    <table id="sync-history-table" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                                <th>Fetched</th>
+                                <th>Processed</th>
+                                <th>Skipped</th>
+                                <th>Errors</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sync-history-body"></tbody>
+                    </table>
+                    <div id="sync-history-empty" class="empty" style="display: none;">
+                        No sync history yet. Run a manual sync or wait for scheduled sync.
                     </div>
                 </div>
 
@@ -561,6 +629,9 @@
                 currentPage = 1;
                 fetchWebhooks();
             });
+
+            // Initialize reconciliation date pickers
+            initSyncDatePickers();
 
             loadData();
             // Auto-refresh every 5 seconds
@@ -891,6 +962,11 @@
             if (tabName === 'dlq') {
                 fetchDLQMessages();
             }
+
+            // Load reconciliation data when tab is opened
+            if (tabName === 'reconciliation') {
+                fetchReconciliationStatus();
+            }
         }
 
         async function fetchDLQStats() {
@@ -1046,6 +1122,147 @@
                 btn.disabled = false;
                 btn.textContent = '✕ Clear All';
             }
+        }
+
+        // ==============================================================================
+        // RECONCILIATION FUNCTIONS
+        // ==============================================================================
+
+        async function fetchReconciliationStatus() {
+            try {
+                // Fetch from worker service (port 9000)
+                const response = await fetch('http://localhost:9000/api/reconciliation/status');
+                const data = await response.json();
+
+                if (data.success && data.status) {
+                    const status = data.status;
+
+                    // Update status cards
+                    document.getElementById('last-sync-time').textContent =
+                        status.last_sync_time_formatted || 'Never';
+                    document.getElementById('next-sync-time').textContent =
+                        status.next_scheduled_sync || '-';
+                    document.getElementById('last-full-sync-time').textContent =
+                        status.last_full_sync_time_formatted || 'Never';
+
+                    const statusIndicator = document.getElementById('sync-status-indicator');
+                    if (status.sync_in_progress) {
+                        statusIndicator.textContent = 'Syncing...';
+                        statusIndicator.style.color = 'var(--warning)';
+                    } else {
+                        statusIndicator.textContent = 'Idle';
+                        statusIndicator.style.color = 'var(--success)';
+                    }
+
+                    // Update history table
+                    renderSyncHistory(status.sync_history || []);
+                }
+            } catch (err) {
+                console.error('Error fetching reconciliation status:', err);
+                document.getElementById('last-sync-time').textContent = 'Error';
+            }
+        }
+
+        async function triggerManualSync() {
+            const startDate = document.getElementById('sync-start-date').value;
+            const endDate = document.getElementById('sync-end-date').value;
+
+            if (!startDate || !endDate) {
+                showSyncMessage('Please select both start and end dates', true);
+                return;
+            }
+
+            if (new Date(startDate) > new Date(endDate)) {
+                showSyncMessage('Start date must be before end date', true);
+                return;
+            }
+
+            const btn = document.getElementById('btn-sync-now');
+            btn.disabled = true;
+            btn.textContent = 'Syncing...';
+
+            try {
+                const response = await fetch(
+                    `http://localhost:9000/api/reconciliation/sync?start_date=${startDate}&end_date=${endDate}`,
+                    { method: 'POST' }
+                );
+                const result = await response.json();
+
+                if (result.success) {
+                    const r = result.result;
+                    showSyncMessage(
+                        `Sync completed: ${r.orders_processed} orders processed, ` +
+                        `${r.orders_skipped} skipped, ${r.errors.length} errors`
+                    );
+                    await fetchReconciliationStatus();
+                } else {
+                    showSyncMessage('Sync failed: ' + (result.error || 'Unknown error'), true);
+                }
+            } catch (err) {
+                showSyncMessage('Error: ' + err.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Sync Now';
+            }
+        }
+
+        function renderSyncHistory(history) {
+            const loading = document.getElementById('sync-history-loading');
+            const table = document.getElementById('sync-history-table');
+            const empty = document.getElementById('sync-history-empty');
+            const tbody = document.getElementById('sync-history-body');
+
+            loading.style.display = 'none';
+
+            if (!history || history.length === 0) {
+                table.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+            table.style.display = 'table';
+
+            tbody.innerHTML = history.map(sync => {
+                const duration = ((sync.completed_at - sync.started_at) / 60).toFixed(1);
+                const startedAt = new Date(sync.started_at * 1000).toLocaleString('en-SG');
+                const statusBadge = sync.success
+                    ? '<span class="badge badge-success">Success</span>'
+                    : '<span class="badge badge-danger">Failed</span>';
+                const typeLabel = sync.sync_type.charAt(0).toUpperCase() + sync.sync_type.slice(1);
+
+                return `
+                    <tr>
+                        <td><span class="badge badge-gray">${typeLabel}</span></td>
+                        <td style="font-size: 12px;">${startedAt}</td>
+                        <td>${duration} min</td>
+                        <td>${sync.orders_fetched}</td>
+                        <td class="success-text">${sync.orders_processed}</td>
+                        <td>${sync.orders_skipped}</td>
+                        <td class="danger-text">${sync.errors.length}</td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function showSyncMessage(message, isError = false) {
+            const el = document.getElementById('sync-message');
+            el.className = isError ? 'alert alert-error' : 'alert alert-success';
+            el.textContent = message;
+            el.style.display = 'block';
+            setTimeout(() => { el.style.display = 'none'; }, 5000);
+        }
+
+        // Initialize date pickers with defaults
+        function initSyncDatePickers() {
+            const today = new Date().toISOString().split('T')[0];
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            const weekAgoStr = weekAgo.toISOString().split('T')[0];
+
+            document.getElementById('sync-start-date').value = weekAgoStr;
+            document.getElementById('sync-end-date').value = today;
         }
     </script>
 </body>

@@ -12,6 +12,9 @@ httpx>=0.25.0
 # Redis Queue
 redis>=5.0.0
 
+# Scheduler
+apscheduler>=3.10.0
+
 # Error Monitoring
 sentry-sdk[fastapi]>=1.40.0
 

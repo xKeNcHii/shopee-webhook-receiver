@@ -2,7 +2,7 @@
 
 import os
 from fastapi import FastAPI
-from shopee_worker.server.routes import router, set_webhook_processor
+from shopee_worker.server.routes import router, set_webhook_processor, set_reconciliation_service, set_reconciliation_scheduler
 from shopee_worker.services.webhook_processor import WebhookProcessor
 from shopee_worker.repositories.sheets_repository import GoogleSheetsRepository
 
@@ -113,6 +113,33 @@ def create_app() -> FastAPI:
             # Set global processor instance
             set_webhook_processor(processor)
 
+            # Initialize Reconciliation Service and Scheduler
+            logger.info("Initializing reconciliation service...")
+            from shopee_worker.services.reconciliation_service import ReconciliationService
+            from shopee_worker.services.reconciliation_scheduler import ReconciliationScheduler
+            from shopee_api.config.settings import settings
+
+            reconciliation_service = ReconciliationService(
+                api_client=api_client,
+                order_service=order_service,
+                repository=repository,
+                redis_host=settings.redis_host,
+                redis_port=settings.redis_port,
+                redis_db=settings.redis_db,
+            )
+            set_reconciliation_service(reconciliation_service)
+            logger.info("✓ Reconciliation service initialized")
+
+            # Initialize and start scheduler
+            reconciliation_scheduler = ReconciliationScheduler(reconciliation_service)
+            app.state.reconciliation_scheduler = reconciliation_scheduler
+            app.state.reconciliation_service = reconciliation_service
+            set_reconciliation_scheduler(reconciliation_scheduler)
+
+            # Start scheduler (with startup sync)
+            await reconciliation_scheduler.start(run_startup_sync=True)
+            logger.info("✓ Reconciliation scheduler started")
+
             # Start Redis consumer workers (if enabled)
             redis_enabled = os.getenv("REDIS_ENABLED", "true").lower() == "true"
             if redis_enabled:
@@ -151,6 +178,17 @@ def create_app() -> FastAPI:
         logger.info("=" * 60)
         logger.info("Shutting down Shopee Order Processor...")
         logger.info("=" * 60)
+
+        # Stop reconciliation scheduler
+        if hasattr(app.state, "reconciliation_scheduler") and app.state.reconciliation_scheduler:
+            logger.info("Stopping reconciliation scheduler...")
+            await app.state.reconciliation_scheduler.stop()
+            logger.info("✓ Reconciliation scheduler stopped")
+
+        # Close reconciliation service Redis connection
+        if hasattr(app.state, "reconciliation_service") and app.state.reconciliation_service:
+            await app.state.reconciliation_service.close()
+            logger.info("✓ Reconciliation service closed")
 
         # Stop Redis workers gracefully
         if hasattr(app.state, "worker_tasks") and app.state.worker_tasks:

@@ -1,15 +1,20 @@
 """Processor API routes."""
 
 import os
-from fastapi import APIRouter, Request, Response
+from datetime import datetime, timezone
+from dataclasses import asdict
+from typing import Optional
+from fastapi import APIRouter, Request, Response, Query
 from shopee_api.core.logger import setup_logger
 from shopee_worker.services.webhook_processor import WebhookProcessor
 
 logger = setup_logger(__name__)
 router = APIRouter()
 
-# Global webhook processor (initialized in app.py on startup)
+# Global instances (initialized in app.py on startup)
 webhook_processor: WebhookProcessor = None
+reconciliation_service = None
+reconciliation_scheduler = None
 
 
 def set_webhook_processor(processor: WebhookProcessor):
@@ -22,6 +27,18 @@ def set_webhook_processor(processor: WebhookProcessor):
     """
     global webhook_processor
     webhook_processor = processor
+
+
+def set_reconciliation_service(service):
+    """Set the global reconciliation service instance."""
+    global reconciliation_service
+    reconciliation_service = service
+
+
+def set_reconciliation_scheduler(scheduler):
+    """Set the global reconciliation scheduler instance."""
+    global reconciliation_scheduler
+    reconciliation_scheduler = scheduler
 
 
 @router.post("/webhook/process")
@@ -187,6 +204,133 @@ async def root() -> dict:
         "endpoints": {
             "health": "/health",
             "webhook": "/webhook/process",
-            "workers_stats": "/workers/stats"
+            "workers_stats": "/workers/stats",
+            "reconciliation_status": "/api/reconciliation/status",
+            "reconciliation_sync": "/api/reconciliation/sync",
+            "reconciliation_history": "/api/reconciliation/history"
         }
     }
+
+
+# ==============================================================================
+# RECONCILIATION ENDPOINTS
+# ==============================================================================
+
+@router.get("/api/reconciliation/status")
+async def get_reconciliation_status() -> dict:
+    """Get current reconciliation status for dashboard.
+
+    Returns:
+        - last_sync_timestamp
+        - last_full_sync_timestamp
+        - next_scheduled_sync
+        - sync_in_progress
+        - sync_history (last 10 syncs)
+    """
+    if not reconciliation_service:
+        return {
+            "success": False,
+            "error": "Reconciliation service not initialized"
+        }
+
+    try:
+        # Get next scheduled sync time from scheduler
+        next_scheduled = None
+        if reconciliation_scheduler:
+            next_scheduled = reconciliation_scheduler.get_next_scheduled_sync()
+
+        status = await reconciliation_service.get_sync_status(next_scheduled)
+
+        return {
+            "success": True,
+            "status": asdict(status)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting reconciliation status: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.post("/api/reconciliation/sync")
+async def trigger_manual_sync(
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+) -> dict:
+    """Trigger manual reconciliation for date range.
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+
+    Returns:
+        Sync result with orders_fetched, orders_processed, errors
+    """
+    if not reconciliation_service:
+        return {
+            "success": False,
+            "error": "Reconciliation service not initialized"
+        }
+
+    try:
+        # Parse dates
+        start = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end = datetime.strptime(end_date, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59, tzinfo=timezone.utc
+        )
+
+        # Run manual sync
+        result = await reconciliation_service.manual_sync(start, end)
+
+        return {
+            "success": result.success,
+            "result": asdict(result)
+        }
+
+    except ValueError as e:
+        return {
+            "success": False,
+            "error": f"Invalid date format: {e}"
+        }
+    except Exception as e:
+        logger.error(f"Error in manual sync: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.get("/api/reconciliation/history")
+async def get_sync_history(
+    limit: int = Query(10, ge=1, le=50, description="Number of history entries")
+) -> dict:
+    """Get sync history.
+
+    Args:
+        limit: Maximum number of history entries to return
+
+    Returns:
+        List of recent sync results
+    """
+    if not reconciliation_service:
+        return {
+            "success": False,
+            "error": "Reconciliation service not initialized"
+        }
+
+    try:
+        status = await reconciliation_service.get_sync_status()
+
+        return {
+            "success": True,
+            "history": status.sync_history[:limit]
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting sync history: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }

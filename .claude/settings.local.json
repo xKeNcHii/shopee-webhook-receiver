@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\\\Users\\\\XQ\\\\Desktop\\\\Shopee Callback Dev\\\\src\" /s /b)",
+      "Bash(find \"C:\\\\Users\\\\XQ\\\\Desktop\\\\Shopee Callback Dev\" -name \"__init__.py\" -path \"*/repositories/*\" -exec cat {} ;)"
+    ]
+  }
+}
